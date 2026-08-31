@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env*/
+.python-version
+
+# Notebooks
+.ipynb_checkpoints/
+
+# Large data — traces are downloaded, never committed
+data/
+workloads/raw/
+*.parquet
+*.csv.gz
+*.jsonl.gz
+
+# Raw experiment output: keep the directory, not multi-GB artefacts.
+# Committed result artefacts must be added explicitly with `git add -f`.
+results/**
+!results/.gitkeep
+!results/**/README.md
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
