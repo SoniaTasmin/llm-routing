@@ -30,21 +30,32 @@ data sources, statistical principles and 12-week plan.
 ---
 
 ## M1 — Simulator-base spike
-**Week:** 1 · **Budget:** 3 days · **State:** `IN PROGRESS`
+**Week:** 1 · **Budget:** 3 days · **State:** `AWAITING APPROVAL`
+(work complete 2026-09-02; becomes `DONE` only on explicit user approval)
 
 **Objective.** Decide the simulation base for the whole project: extend Vidur,
 extend LLMServingSim, or build a small cluster-level discrete-event simulator.
 
 **Acceptance criteria.**
-- [ ] Both Vidur and LLMServingSim obtained and actually run at least once (or a
-      documented, evidenced reason why one could not be run).
-- [ ] Both scored against R1–R8 with **concrete evidence** (repository paths,
-      file/line references, API surfaces), not impressions.
-- [ ] Estimated extension effort per candidate for the requirements it fails.
-- [ ] A single recommendation with rationale, including what would falsify it.
-- [ ] Decision recorded in `DECISIONS.md` with date and rationale.
-- [ ] Failed attempts and dead ends recorded in `NOTEBOOK.md`.
-- [ ] Spike artefacts committed under `docs/spike/`.
+- [x] Both Vidur and LLMServingSim obtained and actually run at least once.
+      Vidur `main`: 3 runs (4 replicas ×128 req; repeat; 8 replicas ×2048 req).
+      Vidur `canary`: 1 run (Mooncake trace, prefix caching, sticky routing).
+      LLMServingSim: 2 runs (single instance; 2 instances with a shared CPU
+      prefix pool). Neither candidate had to be judged unrun.
+- [x] Both scored against R1–R8 with **concrete evidence** — file/line
+      references, API surfaces, CLI probes and run output, not impressions.
+      `docs/spike/requirements-matrix.md`. Vidur's `main` and `canary` branches
+      were scored **separately**, because `main`'s README directs users needing
+      prefix caching and routing policies to `canary`; they are different
+      simulators for our purposes.
+- [x] Estimated extension effort per candidate for every failed **and partial**
+      requirement, in engineer-days, each with its basis stated and labelled
+      `estimate`. `requirements-matrix.md` §3.
+- [x] A single recommendation with rationale and **six dated falsifiers**.
+      `docs/spike/recommendation.md`.
+- [x] Decision recorded in `DECISIONS.md` as **D-006** (supersedes D-005).
+- [x] Failed attempts, stalls and dead ends recorded in `NOTEBOOK.md`.
+- [x] Spike artefacts committed under `docs/spike/`.
 
 **Requirements to score (from `PROJECT_SPEC.md` §9).**
 R1 multiple replicas · R2 pluggable routing · R3 cross-replica prefix-cache
@@ -56,7 +67,22 @@ simulator. Downloading traces. Kubernetes. Running the experiment matrix.
 
 **Sub-status.**
 - [x] Repository scaffolding + memory system created (2026-08-31).
-- [ ] Spike itself — **awaiting explicit user approval to proceed.**
+- [x] Spike executed 2026-09-01 → 2026-09-02.
+
+**Outcome.** **Extend Vidur**, branch `canary`, pinned at
+`25e0082dbbfb206fb0477c3ebbededa7ead78949`. Vidur `canary` fails only R4
+(heterogeneous replicas) and R5 (replica failure) outright; LLMServingSim wins
+R4 but is only partial on R2 (its routing hook never receives the request) and
+fails R5, R6 and R7, with R5 crossing a process boundary into C++.
+
+**Carried into later milestones as work, not as risk-free assumptions:**
+R4 heterogeneity (M7, `estimate` 3–5 d), R5 failure injection (M10,
+`estimate` 3–5 d), R6 SLO attainment (M9, 1–2 d), R7 cost + fleet search
+(M9, 4–7 d).
+
+**Note for M2.** Vidur `canary` ships a preprocessed Mooncake trace with block
+hashes and session ids. It is **not** to be adopted on trust — re-deriving it
+from the upstream trace is falsifier F4 in `recommendation.md`.
 
 ---
 

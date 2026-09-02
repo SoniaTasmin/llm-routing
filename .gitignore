@@ -29,3 +29,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# M1 spike working area: third-party simulator clones, venvs, build output.
+# Cloned by hand per docs/spike/, never committed (see REPRODUCE.md).
+.spike/
