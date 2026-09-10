@@ -187,3 +187,28 @@ def test_truncation_retention_metrics_are_reported():
 def test_truncation_rejects_nonsense_budget():
     with pytest.raises(WorkloadError):
         truncate_to_context_budget([_r(0, 512, 1, [1])], 0)
+
+
+def test_realised_sharing_is_stable_across_seeds():
+    """Generator correctness, NOT the experimental >=10-seed requirement.
+
+    PROJECT_SPEC.md 11's ">= 10 seeds per cell" governs EXPERIMENT cells (M5+).
+    It says nothing about how many seeds a workload is generated at. What must
+    hold here is a generator property: that the realised sharing a given phi
+    produces is a stable characteristic of the construction rather than an
+    artefact of one draw. If it were seed-sensitive, reporting a single realised
+    figure per phi would misdescribe the workload and E2's x-axis would be noisy.
+
+    Measured spread across 10 seeds is <= 0.06 pp at every phi; the band below is
+    deliberately looser so the test fails on a real regression, not on noise.
+    """
+    for phi in FROZEN_PHI_SWEEP:
+        vals = [
+            generate_synthetic(phi=phi, num_requests=2000, seed=s)[1].realised_sharing
+            for s in range(1, 11)
+        ]
+        spread = max(vals) - min(vals)
+        assert spread < 0.01, (
+            f"phi={phi}: realised sharing varies by {100*spread:.3f} pp across "
+            "seeds; it should be a property of the construction"
+        )

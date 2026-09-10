@@ -107,7 +107,10 @@ from the upstream trace is falsifier F4 in `recommendation.md`.
 ---
 
 ## M2 — Trace loaders + unified format + synthetic phi generator
-**Week:** 2 · **State:** `AWAITING APPROVAL` (work complete 2026-09-10; F6 resolved as D-008, provisional)
+**Week:** 2 · **State:** `DONE (approved)` · **Approved:** 2026-09-10
+
+Approved on the recorded acceptance checklist below. **D-008 remains PROVISIONAL**
+and all four of its gates remain **OPEN** — closing M2 does not close them.
 
 **Objective.** A unified workload record format, three loaders that emit it, and
 a synthetic generator whose realised prefix sharing is *measured* rather than
@@ -134,11 +137,11 @@ assumed — so that every later milestone consumes one schema regardless of sour
 | 3 | **Mooncake re-derivation (F4)** | Re-derived from `kvcache-ai/Mooncake` @ `eeaca79`, `FAST25-release/traces/conversation_trace.jsonl`, sha256 `b8cbb061a85206d7…`. n=**12 031**, block_size **512** verified on 100 % of records. Realised sharing **38.19 %**. **F4 does not fire** — `docs/workload-mooncake-f4.md` | ✅ |
 | 4 | **Native + D′ manifests** | Native preserved **immutable**. D′ variant `mooncake-conversation-trunc65536`: n=**12 031**, **0 dropped**, **257 altered** (2.14 %), block retention **0.9581**, reused-block retention **0.9692**, arrivals and output lengths **preserved exactly**, sharing 38.19 % → **38.63 % (+0.44 pp)**, timing proxy recorded as `UNVALIDATED PROXY` | ✅ |
 | 5 | **Azure cache-blind loader** | conv **19 366** + code **8 819** requests. `prefix_structure=absent`, `realised_sharing=None`, `block_size=None`. Cache-blind **by construction** — the schema refuses to attach a sharing rate (D-004) | ✅ |
-| 6 | **Synthetic φ generator** | Externally supplied block hashes (forced by the confirmed `hash_block_tokens` defect). Nominal → **measured** realised sharing: 0.0 → 0.0000 · 0.25 → 0.2360 · 0.5 → 0.4908 · 0.75 → 0.7413 · 0.9 → **0.8805** | ✅ |
+| 6 | **Synthetic φ generator** | Externally supplied block hashes (forced by the confirmed `hash_block_tokens` defect). Nominal → **measured** realised sharing: 0.0 → 0.0000 · 0.25 → 0.2360 · 0.5 → 0.4908 · 0.75 → 0.7413 · 0.9 → **0.8805**. Figures are seed-stable: spread **≤ 0.06 pp across 10 seeds** | ✅ |
 | 7 | **F6 decision recorded before adoption** | Four analysis revisions; three user audits. Adopted provisionally as **D-008**. `docs/workload-mooncake-context-length-f6.md` | ✅ |
-| — | **Validation** | **38 tests passing** (`pytest tests/ -q`). They caught two real defects: the φ generator producing 0.685 realised sharing for a nominal 0.9, and the truncation invariants | ✅ |
+| — | **Validation** | **39 tests passing** (`pytest tests/ -q`). They caught two real defects: the φ generator producing 0.685 realised sharing for a nominal 0.9, and the truncation invariants | ✅ |
 
-**State:** all seven criteria met. **M2 awaits user approval.**
+**State:** all seven criteria met and approved 2026-09-10.
 
 ### Incomplete / deliberately deferred
 
@@ -150,7 +153,7 @@ Nothing here blocks M2 closure; all of it is scheduled work or an open gate.
 | **G1 end-to-end feasibility** — no long-context run performed; predictor-fit cost **has no defensible estimate** (the 11–14 h figure is withdrawn) | **M4** | Full fit not authorised |
 | **G2 predictor behaviour** outside its training range — random-forest flat-lining is inferred, not measured | **M4** | |
 | **G3 timing-proxy fidelity** — the `Meta-Llama-3-8B` profile as a stand-in for Llama-3.1-8B is architecturally supported but unvalidated | **M11 / E8** | |
-| Synthetic sweep generated at **1 seed**; `PROJECT_SPEC.md` §11 requires ≥10 per cell | **M5** | Generator is seeded and deterministic; only the sweep is small |
+| Larger **experiment-cell** seed counts (≥10 per cell, `PROJECT_SPEC.md` §11) | **M5** | **Not an unmet M2 criterion.** M2 required realised sharing to be *measured and reported*, which it is. §11's ≥10 seeds governs experiment cells, not workload generation. Generator stability was checked separately and is now a test: realised sharing varies by **≤ 0.06 pp across 10 seeds** at every φ, so the single reported figure per φ is representative |
 | **Mooncake session derivation** — upstream has no `session_id`, and we decline the invented one in the shipped CSV | **M6** | Blocks session-sticky policies on Mooncake until a rule is recorded |
 | a100 **TP=2 / TP=4** have no profiling data at all | M4/M7 | Must not be used as replica configurations without new profiling |
 
@@ -169,9 +172,28 @@ RQ2/E3 scope.
 ---
 
 ## M3 — vLLM calibration
-**Week:** 3 · **State:** `NOT STARTED`
+**Week:** 3 · **State:** `PREPARATION IN PROGRESS` (no GPU work started; awaiting budget approval)
 
-Measure real vLLM timing behaviour to parameterise the simulator's timing model.
+**Objective.** Obtain trustworthy timing data for the model and hardware this
+study will simulate, so that every latency, cost and SLO number downstream rests
+on measured behaviour rather than on a borrowed profile we have not checked.
+
+Concretely, D-008 left us simulating a **Llama-3.1-8B-class** model using Vidur's
+shipped `Meta-Llama-3-8B` profile as an **unvalidated proxy**. M3 is where that
+proxy is either validated or replaced.
+
+**Acceptance criteria.**
+- [ ] A calibration plan with exact GPU, model, software versions and a bounded
+      cost, approved by the user **before** any spend.
+- [ ] Vidur's profiler run on the chosen `(model, device, TP)`, producing
+      `attention.csv`, `mlp.csv` and collectives data in the shipped schema.
+- [ ] A short real-vLLM replay on the same hardware, for comparison.
+- [ ] A written verdict on **G3**: does the shipped profile represent our model,
+      or is our own profile required?
+- [ ] Everything reproducible from `REPRODUCE.md` without privileged access.
+
+**Explicitly NOT in this milestone.** Routing policies. Experimental sweeps. The
+full predictor fit (that is M4/G1). Any spend before approval.
 
 ---
 

@@ -1,6 +1,6 @@
 # CURRENT_STATUS.md — What Is Happening RIGHT NOW
 
-**Last updated:** 2026-09-10 (M2 work complete)
+**Last updated:** 2026-09-10 (M2 approved; M3 preparation)
 **Project week:** Week 2 of 12
 **Branch:** `main` · **Remote:** `SoniaTasmin/llm-routing` (public)
 
@@ -12,8 +12,9 @@
 |-----------|-------|-------|
 | **M0** | Research specification (framing, RQs, policies, experiments, stats) | **APPROVED AND FROZEN** |
 | **M1** | Simulator-base spike (Vidur vs LLMServingSim vs small custom DES) | **DONE (approved 2026-09-10)** |
-| **M2** | Trace loaders + unified format + synthetic phi generator | **WORK COMPLETE — AWAITING APPROVAL** (one open decision: F6) |
-| M3+ | everything else | NOT STARTED — do not implement |
+| **M2** | Trace loaders + unified format + synthetic phi generator | **DONE (approved 2026-09-10)** |
+| **M3** | vLLM calibration | **PREPARATION IN PROGRESS** — no GPU work, awaiting budget approval |
+| M4+ | everything else | NOT STARTED — do not implement |
 
 ---
 
@@ -45,7 +46,7 @@ Artefacts: `docs/spike/` (5 files), `DECISIONS.md` D-006 + D-007, `NOTEBOOK.md`.
 
 ---
 
-## M2 — work complete, awaiting approval
+## M2 — DONE (approved 2026-09-10)
 
 **Objective.** One unified workload record format, three loaders that emit it,
 and a synthetic generator whose realised prefix sharing is *measured* rather than
