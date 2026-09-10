@@ -130,3 +130,60 @@ def test_azure_rejects_wrong_columns(tmp_path):
     p.write_text("foo,bar\n1,2\n")
     with pytest.raises(WorkloadError, match="missing columns"):
         load_azure(p)
+
+
+# ---------------------------------------------------------------- transforms
+
+from workload.transforms import truncate_to_context_budget  # noqa: E402
+
+
+def _r(rid, pre, dec, ids, bs=512, sess=None):
+    from workload.schema import WorkloadRequest
+    return WorkloadRequest(rid, float(rid), pre, dec, tuple(ids), bs, sess)
+
+
+def test_truncation_preserves_arrivals_and_output_lengths():
+    src = [_r(0, 4096, 100, [1, 2, 3, 4, 5, 6, 7, 8]), _r(1, 1024, 50, [1, 2])]
+    out, rep = truncate_to_context_budget(src, 2048)
+    assert [x.arrival_s for x in out] == [0.0, 1.0]
+    assert [x.num_decode_tokens for x in out] == [100, 50]
+    assert rep.decode_tokens_in == rep.decode_tokens_out
+
+
+def test_truncation_caps_prompt_at_budget_minus_output():
+    out, _ = truncate_to_context_budget([_r(0, 4096, 100, list(range(8)))], 2048)
+    assert out[0].num_prefill_tokens == 2048 - 100
+    assert out[0].total_tokens <= 2048
+
+
+def test_truncation_keeps_only_whole_valid_blocks_from_the_head():
+    """Chained hashes: only a head-truncation preserves what the ids mean."""
+    out, _ = truncate_to_context_budget([_r(0, 4096, 100, [10, 11, 12, 13, 14, 15, 16, 17])], 2048)
+    assert out[0].block_hash_ids == (10, 11, 12)      # (2048-100)//512 == 3
+    assert len(out[0].block_hash_ids) == out[0].num_prefill_tokens // 512
+
+
+def test_truncation_leaves_fitting_requests_untouched():
+    src = [_r(0, 1024, 50, [1, 2])]
+    out, rep = truncate_to_context_budget(src, 65536)
+    assert out == src and rep.requests_truncated == 0 and rep.requests_dropped == 0
+
+
+def test_truncation_reports_undroppable_requests_rather_than_coercing():
+    """A request whose DECODE alone busts the budget cannot be fixed by capping
+    the prompt. It is dropped and counted, never silently reshaped."""
+    out, rep = truncate_to_context_budget([_r(0, 512, 5000, [1])], 1024)
+    assert out == [] and rep.requests_dropped == 1
+
+
+def test_truncation_retention_metrics_are_reported():
+    src = [_r(0, 4096, 100, list(range(8)))]
+    _, rep = truncate_to_context_budget(src, 2048)
+    d = rep.as_dict()
+    assert d["blocks_in"] == 8 and d["blocks_out"] == 3
+    assert 0 < d["block_retention"] < 1 and d["decode_preserved"] is True
+
+
+def test_truncation_rejects_nonsense_budget():
+    with pytest.raises(WorkloadError):
+        truncate_to_context_budget([_r(0, 512, 1, [1])], 0)

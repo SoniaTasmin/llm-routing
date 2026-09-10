@@ -1,0 +1,48 @@
+{
+  "name": "mooncake-conversation-trunc65536",
+  "source": "mooncake",
+  "prefix_structure": "present",
+  "num_requests": 12031,
+  "schema_version": "1.0",
+  "block_size": 512,
+  "upstream_url": "https://github.com/kvcache-ai/Mooncake :: FAST25-release/traces/conversation_trace.jsonl",
+  "upstream_commit": null,
+  "upstream_sha256": "b8cbb061a85206d729d91cdc2981f43c9e0d99209dce588d3af5f7934408b9df",
+  "transformation": "timestamp ms -> arrival_s seconds; input_length -> num_prefill_tokens (unchanged); output_length -> num_decode_tokens (unchanged); hash_ids truncated to floor(prefill/512) whole blocks; session_id left None (absent upstream). THEN truncated to a 65536-token context budget (D-008, provisional): prompts capped at budget minus output length; arrival times and output lengths preserved; block hashes truncated to surviving whole blocks.",
+  "nominal_phi": null,
+  "realised_sharing": 0.3863143073920708,
+  "seed": null,
+  "notes": "PROVISIONAL D' VARIANT (D-008). Derived from the native trace, which remains available unmodified alongside it.\nASSUMPTION (unvalidated): simulated with the shipped Vidur 'meta-llama/Meta-Llama-3-8B' timing profile used as a PROXY for a Llama-3.1-8B-class model. The architectures match on every parameter determining FLOPs and KV bytes per token, which SUPPORTS the proxy but does not establish it. Whether additional profiling is required is for M3/M11 validation to determine.\nRealised sharing rises from 0.3819 (native) to 0.3863 because truncation keeps prompt heads, where reuse concentrates, and discards tails.",
+  "extra": {
+    "derived_from": "mooncake-conversation",
+    "native_realised_sharing": 0.3819,
+    "sharing_delta_pp": 0.4414,
+    "truncation": {
+      "budget_tokens": 65536,
+      "requests_in": 12031,
+      "requests_out": 12031,
+      "requests_truncated": 257,
+      "requests_dropped": 0,
+      "blocks_in": 276491,
+      "blocks_out": 264919,
+      "block_retention": 0.958147,
+      "prefill_tokens_in": 144793823,
+      "prefill_tokens_out": 138875858,
+      "prefill_token_retention": 0.959128,
+      "decode_tokens_in": 4122048,
+      "decode_tokens_out": 4122048,
+      "decode_preserved": true
+    },
+    "timing_proxy": {
+      "profile_used": "meta-llama/Meta-Llama-3-8B (Vidur canary 25e0082)",
+      "intended_model_class": "Llama-3.1-8B",
+      "status": "UNVALIDATED PROXY",
+      "validation_owner": "M3 profiling review / M11 E8 fidelity"
+    },
+    "gates_open": [
+      "M4: end-to-end long-context run has not been performed",
+      "M4: random-forest behaviour outside training range unverified",
+      "M11: timing proxy unvalidated against real vLLM"
+    ]
+  }
+}

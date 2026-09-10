@@ -698,3 +698,88 @@ structure; a scaling transformation stood in for a scaled workload. The M1 revie
 found the same shape in the throughput ratio. That is now twice, and it is worth
 naming as a standing failure mode rather than treating each instance as
 independent.
+
+---
+
+## 2026-09-10 — F6 rev 3: the arithmetic that did not reconcile
+
+A second user audit, this time on rev 2. The lead observation was arithmetic:
+I had written "512 batch sizes with 644 KV values each", which implies 329 728
+decode rows — against the 100 738 I had reported for the same device two
+paragraphs earlier. The numbers were in the same document and I had not checked
+them against each other.
+
+**Root cause, and it explains both wrong factors at once.** The profiling CSVs
+carry a `num_tensor_parallel_workers` column. I never looked at the column list.
+
+- **644** was 322 (TP=1) + 322 (TP=8), summed because I filtered on nothing.
+- **512** came from `prediction_max_batch_size`, a *predictor* default I had read
+  while tracing the grid, not from the data. The data has **176** distinct decode
+  batch sizes.
+
+Reading the schema first would have cost thirty seconds. Instead the error
+propagated into a recommendation.
+
+### What the proper audit found
+
+| Device | TPs present | Reconciles? |
+|---|---|---|
+| a100 | **1, 8 only** | 65 268 + 78 518 = 143 786 ✓ |
+| h100 | 1, 2, 4, 8 | 65 593 + 72 740 + 76 854 + 78 854 = 294 041 ✓ |
+
+**a100 has no TP=2 or TP=4 profiling.** Rev 2's memory table listed capacities
+for exactly those configurations — MemoryPlanner numbers with no timing data
+behind them. A reader could have chosen a100 TP=4 off that table and hit nothing.
+
+Joint coverage for a100 TP=1 does support D′: decode reaches kv = 65 536 at every
+batch size 1–64, every memory-feasible `(batch, kv)` pair is inside the grid, and
+chunk-prefilling a 65 536 prompt at chunk 4 096 needs 16 KV steps of which **0**
+are missing. So the recommendation survived — but it survived on evidence I had
+not actually gathered when I first made it.
+
+### Three claims that were too strong
+
+1. **"Architecturally exact."** The architecture *match* is exact; the *timing
+   proxy* is not established by it. The shipped profile was swept at
+   `max_model_len = 262 144` on a model whose released window is 8 192, so it
+   already measures something other than the released model. Now labelled an
+   **unvalidated timing proxy**, with M3/M11 owning whether more profiling is
+   needed — rather than my flat "no new profiling required".
+
+2. **"Timing model valid: no" for consistent scaling.** Wrong, and the user
+   corrected me *toward* the more careful position. Scaling does not break the
+   simulator: it prices the scaled workload correctly. What it destroys is
+   **external validity** — the scaled workload is no longer Mooncake and
+   exercises a different operating regime. I had collapsed "wrong for our
+   purposes" into "invalid", which is a different and stronger claim.
+
+3. **The operating point.** I quoted 3 concurrent sequences at TP=1. That is
+   capacity at the *native* 126 527-token maximum — a workload D′ does not
+   produce. Under D′ the figure is **7**. And it is a MemoryPlanner capacity
+   ceiling, not observed concurrency: achieved batch size depends on arrivals,
+   admission, chunked-prefill interleaving and preemption, none of which that
+   calculation models.
+
+### What was adopted
+
+**D-008, provisional.** Native trace immutable; a separately named
+`mooncake-conversation-trunc65536` variant; arrivals and output lengths preserved
+exactly; prompts capped at `65 536 − output_length`; hashes truncated to whole
+head blocks; all transformations and retention metrics in the manifest; the
+model substitution recorded as an `assumption`. **0 requests dropped, 257
+altered, 95.81 % of blocks retained, +0.44 pp.** Three gates left open (M4
+feasibility, M4 predictor behaviour, M11 fidelity).
+
+### The pattern, third instance
+
+M1 review: a throughput ratio presented as controlled when it was not.
+F6 rev 2: a column maximum presented as coverage.
+F6 rev 3: a summary statistic quoted without checking it against another number
+in my own document.
+
+All three are the same failure: **treating a number I computed as a fact about
+the system, without asking what the number was actually over.** The fix that
+would have caught all three is mechanical — before quoting an aggregate, state
+its domain (over which rows? which column? which configuration?) and check it
+reconciles against something independent. I am recording that as a standing
+check, not a resolution to be more careful.

@@ -1,14 +1,19 @@
 # docs/workload-mooncake-context-length-f6.md — F6: corrected analysis
 
-**Date:** 2026-09-10 (rev 2, after user audit) · **Milestone:** M2 · **Falsifier:** F6
-**STATUS: AWAITING USER DECISION. No option adopted. Native Mooncake unchanged.**
+**Date:** 2026-09-10 (rev 3) · **Milestone:** M2 · **Falsifier:** F6
+**STATUS: D′ ADOPTED PROVISIONALLY as the workload policy (D-008). Native trace
+preserved unmodified. Simulator feasibility and fidelity gates remain OPEN.**
 
-> **Revision note.** Rev 1 of this file recommended "Option D — raise
-> `max_model_len` on Meta-Llama-3-8B". A user audit found six errors in it. All
-> six were real. This revision corrects them and reaches a **different**
-> recommendation. Rev 1's reasoning is not preserved here because it was wrong,
-> not merely superseded; what was wrong and why is recorded in `NOTEBOOK.md`
-> (2026-09-10, "F6 rev 2").
+> **Revision history.** Rev 1 recommended raising `max_model_len` on
+> Meta-Llama-3-8B; a user audit found six errors and it was withdrawn. Rev 2
+> proposed D′ but reported profiling counts that did not reconcile — 512 batch
+> sizes × 644 KV values implies 329 728 decode rows against a stated 100 738 —
+> and overstated three claims. **Root cause of the arithmetic: I aggregated
+> across the `num_tensor_parallel_workers` column without noticing it existed.
+> 322 (TP=1) + 322 (TP=8) = the 644 I reported, and 176 distinct batch sizes
+> became "512" because I read `prediction_max_batch_size`, a *predictor*
+> default, instead of the data.** Rev 3 audits coverage per device and per TP,
+> and qualifies the claims. What was wrong and why is in `NOTEBOOK.md`.
 
 ---
 
@@ -16,52 +21,55 @@
 
 **Rev 1 proposed a hypothetical model and did not say so.** Released
 Meta-Llama-3-8B has a context window of **8 192** tokens. Raising
-`max_model_len` to 131 072 would simulate a model that does not exist, and
-`PROJECT_SPEC.md` §11's honesty rules do not permit that to pass unlabelled.
+`max_model_len` to 131 072 would simulate a model that does not exist.
 
-Raising `max_model_len` alone is indeed insufficient — you were right. But there
-is a legitimate model behind the same numbers.
-
-**Llama-3.1-8B is real, released, and architecturally identical.** Comparing
-Vidur `canary`'s `Llama3_8BModelConfig` against the published Llama-3.1-8B
-`config.json` (from LLMServingSim's model catalogue):
+There is a legitimate model behind the same numbers. **Llama-3.1-8B is real,
+released, 131 072 context.** Comparing Vidur `canary`'s `Llama3_8BModelConfig`
+against the published Llama-3.1-8B `config.json`:
 
 | Parameter | Vidur `Meta-Llama-3-8B` | Llama-3.1-8B | Match |
 |---|---|---|---|
-| `num_layers` / `num_hidden_layers` | 32 | 32 | ✓ |
+| `num_layers` | 32 | 32 | ✓ |
 | `embedding_dim` / `hidden_size` | 4 096 | 4 096 | ✓ |
-| `num_q_heads` / `num_attention_heads` | 32 | 32 | ✓ |
-| `num_kv_heads` / `num_key_value_heads` | 8 | 8 | ✓ |
+| `num_q_heads` | 32 | 32 | ✓ |
+| `num_kv_heads` | 8 | 8 | ✓ |
 | `mlp_hidden_dim` / `intermediate_size` | 14 336 | 14 336 | ✓ |
 | `rope_theta` | 500 000 | 500 000 | ✓ |
 | `vocab_size` | 128 256 | 128 256 | ✓ |
-| **`max_position_embeddings`** | (config says 4 096) | **131 072** | — |
-| `rope_scaling` | — | factor 8 from 8 192 | differs |
+| `max_position_embeddings` | config says 4 096; **profile swept at 262 144** | 131 072 | — |
+| `rope_scaling` | absent | factor 8 from 8 192 | differs |
 
-Every parameter that determines **FLOPs per token** and **KV bytes per token** is
-identical. The only difference is RoPE scaling, which changes positional encoding
-— i.e. output *quality* at long context — and affects neither compute cost nor
-memory footprint. For a **scheduling** study those are exactly the quantities
-that matter, and output quality is out of scope.
+### The qualification rev 2 failed to make
 
-**So the corrected proposal is not "extend Llama-3-8B". It is: declare that we
-simulate a Llama-3.1-8B-class model, and use the shipped `Meta-Llama-3-8B`
-profile as its timing source, stating the substitution.**
+Rev 2 called this "architecturally exact" and concluded "timing model valid:
+yes, no new profiling needed". **All three claims were too strong.**
 
-### What that still needs
+What the architecture match establishes: every parameter that determines **FLOPs
+per token** and **KV bytes per token** is identical, so there is a principled
+reason to expect the timing to transfer. That **supports** the substitution.
+
+What it does **not** establish: that the shipped `Meta-Llama-3-8B` profile
+*measures* Llama-3.1-8B's behaviour. It does not. The profile was swept at
+`max_model_len = 262 144` on a model whose released window is 8 192 — so it is
+already a measurement of *something other than the released model*, most likely
+attention kernels driven at shapes the released weights would never produce.
+Kernel time is a function of shape, which is why the data is meaningful at all;
+but "meaningful" is not "validated".
+
+**Correct status: the Llama-3 profile is an UNVALIDATED TIMING PROXY for a
+Llama-3.1-8B-class model.** Recorded as an `assumption` in every manifest that
+depends on it.
 
 | Need | Status |
 |---|---|
-| New GPU profiling | **None.** The shipped profile already covers the shapes (§2), within the limits §2 establishes. |
-| A config declaring the substitution | Ours, outside `simulator/vendor/` — the vendored tree is never edited (`PROVENANCE.md`). |
-| Correctness gate | **M4.** A run must actually complete at long context; none has. |
-| Fidelity validation | **M11 / E8.** Compare against real vLLM running Llama-3.1-8B. Until then the substitution is an `assumption`, defensible on architecture but unmeasured. |
+| New GPU profiling | **Unknown, not "none".** No new profiling is required *to run*; whether any is required *to be believed* is what M3/M11 must determine. |
+| Config declaring the substitution | Ours, outside `simulator/vendor/` |
+| Correctness gate | **M4 — OPEN.** No long-context run has been executed. |
+| Fidelity validation | **M11 / E8 — OPEN.** Compare against real vLLM on Llama-3.1-8B. If it fails, additional profiling becomes necessary. |
 
 ---
 
-## 2. What `kv_cache_size` actually means, and its joint coverage
-
-**Rev 1 quoted a column maximum. You were right that this establishes nothing.**
+## 2. `kv_cache_size`: semantics, and joint coverage per device and TP
 
 ### The quantity, traced through the code
 
@@ -75,99 +83,119 @@ def is_valid(self, max_seq_len: int):
         elif self.prefill_chunk_size + self.kv_cache_size > max_seq_len:
             return False                     # <-- per-SEQUENCE context bound
     else:
-        if self.prefill_chunk_size > 0:                            return False
-        elif self.kv_cache_size == 0:                              return False
-        elif self.kv_cache_size > max_seq_len:                     return False
+        if self.kv_cache_size > max_seq_len:                       return False
 
 def is_under_memory_limit(self, max_num_tokens: int):
     return self.batch_size * (self.kv_cache_size + self.prefill_chunk_size) <= max_num_tokens
 ```
 
-`vidur/profiling/attention/attention_wrapper.py:95-103`:
+`attention_wrapper.py:95-103` sets `total_len = num_tokens_per_seq +
+kv_cache_size`, `processed_len = kv_cache_size`.
 
-```python
-num_blocks = ceil((num_tokens_per_seq + attention_input.kv_cache_size) / self._block_size)
-... SequenceMetadataProxy(
-        total_len     = num_tokens_per_seq + attention_input.kv_cache_size,
-        processed_len = attention_input.kv_cache_size, ...)
-```
+**`kv_cache_size` is the per-sequence already-processed context.** The aggregate
+quantity is separate — `batch_size * (kv + chunk)` — and is used only to bound
+what the profiler was permitted to sweep. On the predictor side the grid is a
+`product(batch_size_range, kv_cache_size_range, prefill_chunk_size_range)`
+(`sklearn_execution_time_predictor.py:745-779`), so the two are independent axes.
 
-**Verdict: `kv_cache_size` is the *per-sequence* already-processed context** — one
-sequence's KV length, not aggregate batch tokens. The aggregate quantity is a
-*separate* concept, `batch_size * (kv_cache_size + prefill_chunk_size)`, used only
-to bound what the profiler was allowed to sweep.
+### Actual profiling inventory (reconciled)
 
-The same field is consumed as a per-sequence quantity on the predictor side: the
-grid is built as a `product(batch_size_range, kv_cache_size_range, prefill_chunk_size_range)`
-(`sklearn_execution_time_predictor.py:745-779`), so `batch_size` and
-`kv_cache_size` are independent axes — which they could not be if `kv_cache_size`
-were already aggregated over the batch.
+The profiling CSVs carry a `num_tensor_parallel_workers` column. Rev 2 ignored
+it and summed across TPs. Per device and TP:
 
-### Joint coverage — the thing the column max hid
+| Device | TPs present | Rows/TP (prefill + decode) | Device total |
+|---|---|---|---|
+| **a100** | **1, 8 only** — no TP=2, no TP=4 | TP1: 21 524 + 43 744 = 65 268 · TP8: 21 524 + 56 994 = 78 518 | 143 786 ✓ |
+| **h100** | 1, 2, 4, 8 | TP1: 21 860 + 43 733 = 65 593 · TP2: 72 740 · TP4: 76 854 · TP8: 78 854 | 294 041 ✓ |
 
-`meta-llama/Meta-Llama-3-8B`, all 143 786 rows (a100) / 294 041 (h100):
+Both totals reconcile exactly. All rows: `block_size = 16`,
+`attention_backend = FLASHINFER`, `max_model_len = 262 144`.
 
-| Phase | batch_size | prefill_chunk_size | kv_cache_size | joint |
+**a100 TP=2 and TP=4 have no timing data at all.** Rev 2's memory table listed
+them; that was a MemoryPlanner calculation with no profile behind it.
+
+### Joint coverage — a100 TP=1, the reference configuration for D′
+
+**Decode** (176 distinct batch sizes, 322 KV values each at this TP):
+
+| batch_size | max kv_cache_size | | batch_size | max kv_cache_size |
 |---|---|---|---|---|
-| **Prefill** | 1 only | ≤ 4 096 (a100) / 8 192 (h100) | ≤ 262 112 | **`chunk + kv` reaches 262 144** — jointly covered |
-| **Decode** | 1 … 512, complete | 0 | **≤ 65 536** | complete grid, 644 kv values at *every* batch size |
+| 1 – 64 (all) | **65 536** | | 128 | 36 352 |
+| 96 | 48 384 | | 192 | 24 064 |
+| 256 | 18 176 | | 512 | 8 960 |
 
-**The binding profiled ceiling is 65 536 tokens of per-sequence context, set by
-decode — not the 262 112 rev 1 quoted, which is prefill-only.** Rev 1 took a
-column maximum across both phases and reported it as the model's reach. That was
-the single largest error in it.
+Above batch 64 the sweep is pruned by the aggregate-token limit. **That pruning
+is not a gap for us**: MemoryPlanner gives this configuration 483 328 KV tokens,
+so every memory-feasible point is inside coverage —
 
-Representative rows confirming the decode grid is dense rather than a sparse tail:
-every batch size from 1 to 512 carries exactly **644** distinct `kv_cache_size`
-values reaching 65 536.
+| batch | memory allows kv ≤ | profile covers kv ≤ | covered? |
+|---|---|---|---|
+| ≤64 | 7 552 (at 64) | 65 536 | ✓ |
+| 96 | 5 035 | 48 384 | ✓ |
+| 512 | 944 | 8 960 | ✓ |
 
-### Why exceeding 65 536 is a fidelity problem, not just a config one
+**Prefill** (batch 1 only, by construction — chunked prefill profiles one
+sequence): 17 chunk values from 32 to 4 096. At `chunk = 4 096`, 128 KV values
+spanning 0 … 258 048, with `chunk + kv` reaching 262 144 throughout.
 
-The *prediction* grid extends to `prediction_max_tokens_per_request = 256*1024`
-by default, so Vidur will happily emit predictions for `kv_cache_size` up to
-262 144. But the *training data* for decode stops at 65 536. A random forest
-cannot extrapolate — beyond its training range it returns the value of the
-nearest leaf, i.e. it **flat-lines**. Decode attention cost grows with context,
-so predictions above 65 536 would systematically **under-estimate** the cost of
-exactly the longest, most expensive requests.
+Chunk-prefilling a 65 536-token prompt at chunk 4 096 needs KV steps
+0, 4 096, …, 61 440 — **16 steps, 0 missing from the profile.**
+h100 TP=1 at chunk 8 192: 8 steps needed, 0 missing.
 
-`hypothesis`, to verify at M4 rather than assume: this flat-lining is inferred
-from how random forests work, not from a measurement of Vidur's predictor.
+### Verdict on coverage
+
+**For a100 TP=1 (and h100 TP=1/2/4/8, a100 TP=8), a 65 536-token budget is fully
+covered in both phases**, across the entire batch-size range memory permits.
+The binding profiled ceiling is **65 536 per-sequence, set by decode** — the
+262 112 rev 1 quoted is prefill-only.
+
+Above 65 536, the decode training data stops while the *prediction* grid
+continues to `prediction_max_tokens_per_request = 262 144`. A random forest
+cannot extrapolate; beyond its training range it returns the nearest leaf, i.e.
+flat-lines. Decode attention cost grows with context, so predictions above
+65 536 would systematically **under-estimate** the longest requests.
+`hypothesis`, to verify at M4 — inferred from how random forests behave, not
+measured in Vidur.
 
 ---
 
-## 3. Context budget and KV-memory feasibility
+## 3. Context budget and KV-memory capacity
 
 **The budget is prompt + generated.** `kv_cache_size` at decode step *t* is
-`prefill + t`, so a request's peak context is `num_prefill_tokens +
-num_decode_tokens`. Measured on our re-derived trace:
+`prefill + t`, so peak context is `num_prefill_tokens + num_decode_tokens`:
 
 | Threshold | Requests exceeding | Share |
 |---|---|---|
 | 8 192 | 5 570 | 46.30 % |
-| **65 536** (decode profiling ceiling) | **257** | **2.14 %** |
-| 131 072 | **0** | **0.00 %** |
+| **65 536** | **257** | **2.14 %** |
+| 131 072 | 0 | 0.00 % |
 
-Largest request: prefill 126 195 + decode 332 = **126 527**. Largest decode alone:
-2 000. So the trace fits inside a 131 072-context model **with no transformation
-at all** — and only 2.14 % of it sits outside profiled decode coverage.
+Largest request: prefill 126 195 + decode 332 = 126 527. Largest decode alone: 2 000.
 
-### KV memory, computed with Vidur's own `MemoryPlanner`
+### MemoryPlanner-derived capacity — an upper bound, not observed concurrency
 
-Llama-3-8B, fp16, 80 GB device, default 10 % memory margin
-(`vidur/utils/memory_planner.py`, run against the vendored tree):
+`vidur/utils/memory_planner.py`, fp16, 80 GB, 10 % margin. **These are static
+capacity ceilings computed from KV bytes per token. They are not measured
+serving concurrency**: achieved batch size depends on the arrival process, the
+replica scheduler's admission policy, chunked-prefill interleaving and
+preemption, none of which this calculation models.
 
-| Device | TP | Max KV tokens per replica | Concurrent seqs @126 527 | @65 536 | @8 192 |
+| Device | TP | Profile exists? | Max KV tokens | Seqs @65 536 (**D′ max**) | @8 192 |
 |---|---|---|---|---|---|
-| a100 / h100 | 1 | 483 328 | **3** | 7 | 59 |
-| a100 / h100 | 2 | 1 073 152 | **8** | 16 | 131 |
-| a100 / h100 | 4 | 2 252 800 | **17** | 34 | 275 |
+| a100 | 1 | ✓ | 483 328 | **7** | 59 |
+| a100 | 8 | ✓ | (not computed — TP=8 not a candidate config) | — | — |
+| a100 | 2, 4 | ✗ **no timing data** | 1 073 152 / 2 252 800 | 16 / 34 | 131 / 275 |
+| h100 | 1 | ✓ | 483 328 | **7** | 59 |
+| h100 | 2 | ✓ | 1 073 152 | 16 | 131 |
+| h100 | 4 | ✓ | 2 252 800 | 34 | 275 |
 
-**Feasible, but it changes the serving regime.** A TP=1 replica can hold three
-maximum-length sequences. At native Mooncake lengths the study would be
-characterising routing at batch sizes of single digits for the long tail — a real
-operating point, but an unusual one, and it should be a deliberate choice rather
-than a surprise discovered at M9.
+**For D′ the relevant figure is 7, not 3.** Rev 2 quoted 3, which is the capacity
+at the *native* 126 527-token maximum — a workload D′ does not produce. Under
+D′ the largest sequence is 65 536 tokens.
+
+Seven concurrent maximum-length sequences at TP=1 is a real constraint on the
+operating point, but it applies only to the 2.14 % of requests near the cap;
+the median request is 7 255 tokens, where capacity is ~66.
 
 ---
 
@@ -272,78 +300,81 @@ independent, cheaper alternative.
 
 ---
 
-## 5. Preserving the trace ≠ validating the timing model
+## 5. Preserving the trace ≠ validating the timing model — with the right reason
 
 Rev 1 presented "0 pp distortion" as though it settled the question. It does not.
-These are independent axes, and Option C is the clean demonstration:
+But rev 2's correction was itself sloppy: it wrote "timing model valid: **no**"
+for consistent scaling, which is wrong.
 
-| | Workload preserved? | Timing model valid? |
-|---|---|---|
-| Consistent scaling (C) | **yes — 0.00 pp, exactly** | **no** — every request's compute and KV footprint is falsified |
-| Native lengths, decode beyond 65 536 | **yes — 0.00 pp** | **partially** — 2.14 % of requests fall outside profiled decode data; RF flat-lining would under-estimate their cost |
-| Truncate at 65 536 | no — +0.44 pp, 95.8 % of blocks kept | **yes** — every request inside profiled coverage |
+**Consistent scaling does not invalidate the timing model.** If every request's
+lengths are scaled and the simulator prices the scaled request, it prices it
+correctly — the timing model is perfectly valid *for the transformed workload*.
+What scaling destroys is **external validity**: the scaled workload is no longer
+Mooncake. Its prompts, KV footprints, batch occupancies and prefill/decode ratios
+are all different, so it exercises a different operating regime, and conclusions
+drawn on it do not transfer to the trace it came from.
 
-"0 pp" establishes only that we did not alter the trace. It says nothing about
-whether the simulator can price it.
+The three axes are distinct and rev 1 collapsed all of them:
+
+| | Trace structure preserved? | Timing model valid *for what is simulated*? | Represents Mooncake's operating regime? |
+|---|---|---|---|
+| Consistent scaling | **yes** — 0.00 pp, exactly | **yes** | **no** — different lengths, resource demands, regime |
+| Native, decode beyond 65 536 | **yes** — 0.00 pp | **no** for 2.14 % of requests — RF extrapolation | yes |
+| **D′ — truncate at 65 536** | mostly — +0.44 pp, 95.81 % of blocks | **yes** — all inside profiled coverage | mostly — alters 2.14 % of requests |
+
+"0 pp" establishes only that we did not alter the trace. Scaling is rejected for
+losing the operating regime, not for breaking the simulator.
 
 ---
 
-## 6. Corrected recommendation
+## 6. Recommendation, and what was adopted
 
-> **D′ — declare a Llama-3.1-8B-class model (using the shipped
-> `Meta-Llama-3-8B` profile, architecturally identical), and truncate the
-> workload at 65 536 total tokens.**
+> **D′ — simulate a Llama-3.1-8B-class model using the shipped
+> `Meta-Llama-3-8B` profile as an *unvalidated timing proxy*, on a workload
+> variant truncated to a 65 536-token context budget.**
 
-Cost: **+0.44 pp** on the sharing ratio, retaining **95.8 %** of prefix blocks and
-**96.9 %** of all reuse, affecting **2.14 %** of requests.
+**Adopted provisionally as the workload policy — see `DECISIONS.md` D-008.**
 
-Why this is the cheapest defensible path:
+### Measured result of the adopted transformation
 
-1. **It requires no new profiling.** No GPU time, no M3 dependency.
-2. **Every request stays inside profiled data**, prefill and decode. No random
-   forest is asked to extrapolate.
-3. **It distorts less than every option rev 1 listed** except native, and native
-   buys its 0 pp by moving 2.14 % of requests outside the timing model's evidence
-   — trading a measurable workload distortion for an unmeasurable timing one.
-4. **The model substitution is architecturally exact**, not a raised constant.
+| | Native | **D′ variant** |
+|---|---|---|
+| Requests | 12 031 | **12 031** (0 dropped) |
+| Requests altered | — | **257** (2.14 %) |
+| Prefix blocks | 276 491 | 264 919 (**95.81 % retained**) |
+| Reused blocks | 105 592 | 102 342 (96.92 % retained) |
+| Realised sharing | 38.19 % | 38.63 % (**+0.44 pp**) |
+| Arrival times | — | **preserved exactly** |
+| Output lengths | — | **preserved exactly** |
 
-**Native (no truncation) remains available and is the better answer *if* we later
-add decode profiling above 65 536** — that needs GPU time and belongs to M3.
-Truncation at 65 536 is reversible; a decision to run native later costs nothing
-now.
+### Why this is the cheapest defensible path
 
-### Remaining uncertainty, stated
+1. **Every request sits inside profiled data**, prefill and decode, across the
+   whole memory-feasible batch range (§2). No random forest extrapolates.
+2. **No new profiling is required to run.** Whether any is required to *believe*
+   the result is for M3/M11 to decide (§1).
+3. **It distorts less than every alternative except native**, and native buys its
+   0 pp by moving 2.14 % of requests outside the timing model's evidence —
+   trading a measured workload distortion for an unmeasured timing one.
+4. **Reversible.** The native trace is preserved unmodified beside the variant.
+   Adding decode profiling above 65 536 at M3 would let us run native later at
+   no cost incurred now.
+
+### Remaining uncertainty
 
 | # | Uncertainty | Status |
 |---|---|---|
-| U1 | Predictor fit cost for Llama-3-8B. Its a100 attention training set is 143 786 rows vs Llama-2-7b's 58 632 (**2.45×**); h100 is 294 041 (**5.01×**). Against M1's `measured` 4 h 37 m, `estimate` **11–14 h** (a100). The *prediction grid* is unchanged — `prediction_max_tokens_per_request` already defaults to 262 144, giving 2 622 080 rows regardless of model. | **unverified**, F2 |
-| U2 | Random-forest flat-lining beyond the training range is inferred from how RFs behave, not measured in Vidur. | **unverified**, M4 |
-| U3 | That the `Meta-Llama-3-8B` profile is representative of real Llama-3.1-8B at long context. Architecturally exact; empirically untested. | **`assumption`**, M11/E8 |
-| U4 | No end-to-end long-context run has been executed. | **open**, M4 gate |
-| U5 | KV memory permits only 3 concurrent maximum-length sequences at TP=1. Real, and it shapes the operating point the study characterises. | **measured**, needs a scope decision |
+| U1 | Predictor fit cost. Llama-3-8B's a100 attention training set is 143 786 rows vs Llama-2-7b's 58 632 (**2.45×**). Against M1's `measured` 4 h 37 m, `estimate` **11–14 h**. The prediction grid is model-independent (2 622 080 rows). | **unverified**, F2 |
+| U2 | Random-forest flat-lining beyond the training range — inferred, not measured. | **unverified**, M4 |
+| U3 | That the Llama-3 profile represents real Llama-3.1-8B at long context. Architecture supports it; nothing measures it. | **`assumption`**, M3/M11 |
+| U4 | No end-to-end long-context run performed. | **OPEN**, M4 gate |
+| U5 | Achieved batch sizes under D′. §3's figures are static capacity ceilings, not observed concurrency. | **unmeasured**, M4 |
 
-### On the smoke-test exception you authorised
+### On the smoke-test exception
 
-**I did not use it, and it is not usable within the limits you set.** Any Vidur
-run on a new `(model, device)` pair must first fit the execution-time predictor —
-`estimate` 11–14 h — which is exactly the full predictor fit you excluded. There
-is no cached artefact for Llama-3-8B and no partial-fit mode that would produce a
-meaningful answer.
-
-What I did instead, inside the bounds: ran Vidur's own `MemoryPlanner` against
-the vendored tree (seconds, negligible memory) for §3, and audited the profiling
-data and predictor code directly. The end-to-end run belongs at **M4**, as the
-gate on U2 and U4.
-
-### The decision requested
-
-| | Option | Sharing Δ | Blocks kept | Inside profiled data? | New profiling? |
-|---|---|---|---|---|---|
-| **D′** | Llama-3.1-8B-class + truncate 65 536 *(recommended)* | +0.44 pp | 95.8 % | **yes** | none |
-| D-native | Llama-3.1-8B-class, no truncation | 0.00 pp | 100 % | **no** — 2.14 % of requests | none, but needs U2 resolved |
-| D-native+ | Native, after profiling decode above 65 536 | 0.00 pp | 100 % | yes | **GPU time at M3** |
-| B32 | Truncate 32 768 | +1.05 pp | 85.2 % | yes | none (same model substitution) |
-| A/B @8 192 | Fit released Llama-3-8B's real window | +4.16 / +6.36 pp | 13.5 % / 43.2 % | yes | none |
-
-Until you choose, `load_mooncake` applies **no filtering and no scaling**, and
-records in the manifest any that is applied.
+**Not used, and not usable within the limits set.** Any Vidur run on a new
+`(model, device)` pair must first fit the predictor — the full fit that was
+excluded. There is no cached artefact for Llama-3-8B and no partial-fit mode that
+answers anything. Inside the bounds I ran Vidur's `MemoryPlanner` (seconds) and
+audited the profiling CSVs and predictor code directly. The end-to-end run is the
+**M4 gate** on U2, U4 and U5.

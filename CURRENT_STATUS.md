@@ -72,44 +72,38 @@ to RQ2/E3 scope. The vendored tree is untouched and checksum-verified.
 
 ## Open decision awaiting the user
 
-**F6 — Mooncake's context length.** Full corrected analysis:
-`docs/workload-mooncake-context-length-f6.md` (**rev 2**, after a user audit
-found six errors in rev 1 — all six were real; see `NOTEBOOK.md`).
+**F6 — RESOLVED as D-008 (provisional).** Three analysis revisions were needed;
+rev 1 and rev 2 were both corrected by user audits. Final:
+`docs/workload-mooncake-context-length-f6.md` (rev 3).
 
-**Corrected recommendation: D′ — declare a Llama-3.1-8B-class model (the shipped
-`Meta-Llama-3-8B` profile is architecturally identical) and truncate at 65 536
-total tokens.** Costs +0.44 pp of sharing ratio, keeps 95.8 % of prefix blocks
-and 96.9 % of all reuse, and puts **every** request inside profiled data for both
-prefill and decode. No new GPU profiling required.
+**Adopted:** simulate a **Llama-3.1-8B-class** model using Vidur's shipped
+`Meta-Llama-3-8B` profile as an **unvalidated timing proxy**, on a Mooncake
+variant truncated to a **65 536-token** context budget.
 
-Key corrections from rev 1:
+| | Native (preserved) | D′ variant |
+|---|---|---|
+| Requests | 12 031 | 12 031 (**0 dropped**, 257 altered) |
+| Prefix blocks | 276 491 | 264 919 (**95.81 % retained**) |
+| Realised sharing | 38.19 % | 38.63 % (**+0.44 pp**) |
+| Arrivals / output lengths | — | **preserved exactly** |
 
-- The profiled ceiling is **65 536** (per-sequence, set by **decode**), not the
-  262 112 rev 1 quoted — that figure is prefill-only. `kv_cache_size` is
-  per-sequence processed context, established by tracing `AttentionInput.is_valid`
-  and `attention_wrapper.py`.
-- Rev 1's "raise `max_model_len` on Llama-3-8B" would have simulated a
-  **hypothetical** model — released Llama-3-8B is 8 192 context.
-- Option C's reported +38 pp was **my own invalid transformation**. Scaled
-  consistently, sharing is exactly invariant (+0.00 pp).
-- **"Long requests share most" is false** — shortest quintile reuses 81.84 %,
-  the rest are flat ~37–44 %. The mechanism is head/tail, not length.
-- **Ranking options by Δ-ratio is the wrong instrument**: A @8 192 has a smaller
-  ratio change than B but discards 86.5 % of prefix blocks against B's 56.8 %.
-- "0 pp" establishes only that the trace was unchanged; it says nothing about
-  whether the timing model can price it.
+Coverage audit supporting it (a100 TP=1): decode covers kv ≤ 65 536 at every
+batch size 1–64, and every memory-feasible `(batch, kv)` point is inside the
+profiled grid; prefill covers all 16 KV steps needed to chunk-prefill a 65 536
+prompt at chunk 4 096, 0 missing.
 
-Measured KV feasibility (Vidur's own `MemoryPlanner`, fp16, 80 GB): TP=1 holds
-**3** concurrent maximum-length sequences (7 at 65 536, 59 at 8 192); TP=2 → 8;
-TP=4 → 17.
+**Corrections made during the audit:** the profiling CSVs carry a
+`num_tensor_parallel_workers` column that rev 2 ignored, which is why its counts
+did not reconcile (322 at TP=1 + 322 at TP=8 = the 644 reported); decode has
+**176** batch sizes, not 512 — that figure came from `prediction_max_batch_size`,
+a predictor default, not the data; **a100 has no TP=2 or TP=4 profiling at all**;
+and the operating-point figure for D′ is **7** concurrent maximum-length
+sequences at TP=1, not the 3 quoted for the native maximum — and it is a
+MemoryPlanner capacity ceiling, not observed concurrency.
 
-Open uncertainty: predictor fit cost (`estimate` 11–14 h, unverified, F2);
-random-forest flat-lining beyond training range (unverified, M4); whether the
-Llama-3-8B profile represents real Llama-3.1-8B at long context (`assumption`,
-M11/E8); no end-to-end long-context run performed (M4 gate).
-
-**No option adopted. Native Mooncake unchanged. Loaders apply no filtering or
-scaling by default.**
+**THREE GATES REMAIN OPEN** — D-008 is not final until they close:
+**G1** M4 end-to-end feasibility · **G2** M4 predictor behaviour outside training
+range · **G3** M11/E8 fidelity of the timing proxy.
 
 ---
 

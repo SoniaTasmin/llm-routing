@@ -107,7 +107,7 @@ from the upstream trace is falsifier F4 in `recommendation.md`.
 ---
 
 ## M2 — Trace loaders + unified format + synthetic phi generator
-**Week:** 2 · **State:** `AWAITING APPROVAL` (work complete 2026-09-10; one open user decision, F6)
+**Week:** 2 · **State:** `AWAITING APPROVAL` (work complete 2026-09-10; F6 resolved as D-008, provisional)
 
 **Objective.** A unified workload record format, three loaders that emit it, and
 a synthetic generator whose realised prefix sharing is *measured* rather than
@@ -144,13 +144,17 @@ assumed — so that every later milestone consumes one schema regardless of sour
       phi 0/0.25/0.5/0.75/0.9 -> 0.0000/0.2360/0.4908/0.7413/0.8805.
 - [x] Loader/generator correctness tests — **31 tests, all passing**. They caught
       a real generator defect (see `NOTEBOOK.md` 2026-09-10).
-- [ ] **F6 options presented; decision recorded before adoption.** Options and a
-      recommendation are in `docs/workload-mooncake-context-length-f6.md`.
-      **AWAITING USER DECISION** — no option adopted; loaders apply no filtering
-      or scaling by default.
+- [x] **F6 options presented; decision recorded before adoption.** Three
+      analysis revisions were needed — rev 1 recommended a hypothetical model and
+      was withdrawn after a user audit found six errors; rev 2 reported profiling
+      counts that did not reconcile; rev 3 audited coverage per device and per TP
+      and supports **D′**. Adopted provisionally as **D-008**, with three gates
+      left open (M4 feasibility, M4 predictor behaviour, M11 fidelity).
+      `docs/workload-mooncake-context-length-f6.md`.
 
-**State:** every criterion except the F6 decision is met. That decision is the
-user's, not the assistant's.
+**State:** all seven criteria met. **M2 awaits user approval.** D-008 is
+provisional by construction: its feasibility and fidelity gates cannot close
+before M4 and M11.
 
 **Explicitly NOT in this milestone.** Simulator modifications. Routing policies
 B1/B2/B3/B4. Experimental sweeps. vLLM calibration. Kubernetes. Any change to

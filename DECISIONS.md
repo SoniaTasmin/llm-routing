@@ -438,3 +438,103 @@ The R4 feasibility probe (M4) is specified rather than implied.
 so they are not independently falsifiable. The six falsifiers in
 `docs/spike/recommendation.md` §5 continue to govern D-006, with F1's trigger now
 defined by §5a.
+
+---
+
+## D-008 — Mooncake context-length policy: D′, provisional
+**Date:** 2026-09-10 · **Status:** ACCEPTED (**PROVISIONAL** — feasibility and fidelity gates open) · **Resolves:** falsifier F6
+
+**Context.** Mooncake is the primary trace for RQ1. Its requests reach 126 527
+tokens (median 7 255, p95 40 056). Vidur's shipped decode profiling stops at
+65 536 tokens of per-sequence context. Every way of reconciling the two changes
+either the workload or the timing model's evidential basis, so this is a research
+decision, not a configuration detail.
+
+Three successive analyses were required. Rev 1 recommended raising
+`max_model_len` on Meta-Llama-3-8B — a hypothetical model, since the released
+window is 8 192. A user audit found six errors and it was withdrawn. Rev 2
+proposed D′ but reported profiling counts that did not reconcile and overstated
+three claims. Rev 3, after a per-device per-TP coverage audit, supports D′ with
+qualifications. Full evidence:
+`docs/workload-mooncake-context-length-f6.md`.
+
+**Decision.** Adopt **D′** as the provisional workload policy:
+
+1. **Model/profile substitution.** Simulate a **Llama-3.1-8B-class** model using
+   Vidur's shipped `meta-llama/Meta-Llama-3-8B` timing profile as an
+   **unvalidated proxy**. Recorded as an `assumption` in every dependent manifest.
+2. **Workload variant.** Truncate to a **65 536-token** context budget, emitted as
+   a **separately named** workload. The native trace is **immutable** and
+   preserved beside it.
+3. **What the truncation preserves:** arrival times exactly, output lengths
+   exactly, request count (0 dropped). Only prompts are capped, at
+   `budget − num_decode_tokens`.
+4. **Prefix hashes:** truncated to surviving **whole** blocks from the head.
+   Chained hashes make head-truncation the only structure-preserving edit — the
+   retained ids still identify the prefixes they identified before.
+5. **All transformations and retention metrics recorded** in the manifest.
+
+**Measured result** (`workloads/derived/mooncake-conversation-trunc65536.jsonl`):
+12 031 requests, **0 dropped**, **257 altered** (2.14 %), **95.81 %** of prefix
+blocks and **96.92 %** of reused blocks retained, realised sharing 38.19 % →
+**38.63 % (+0.44 pp)**, arrivals and output lengths preserved.
+
+**Rationale.**
+
+1. **Coverage supports it, verified jointly rather than by column maxima.** For
+   a100 TP=1: decode covers kv ≤ 65 536 at every batch size 1–64, and every
+   memory-feasible `(batch, kv)` point is inside the profiled grid; prefill covers
+   all 16 KV steps needed to chunk-prefill a 65 536-token prompt at chunk 4 096,
+   with 0 missing. Same holds on h100 TP=1/2/4/8 and a100 TP=8.
+2. **Native would move 2.14 % of requests outside the timing model's evidence.**
+   Vidur's prediction grid runs to 262 144 while decode training data stops at
+   65 536; a random forest flat-lines beyond its training range, systematically
+   under-estimating the longest and costliest requests. D′ trades a **measured**
+   +0.44 pp workload distortion for removing an **unmeasured** timing error.
+3. **The architecture match supports the proxy without establishing it.** Every
+   parameter determining FLOPs and KV bytes per token is identical between
+   Meta-Llama-3-8B and Llama-3.1-8B. That is a principled reason to expect
+   transfer; it is not a measurement, and the profile was itself swept at
+   `max_model_len = 262 144` on a model whose released window is 8 192.
+4. **Reversible at no cost.** The native trace is preserved. Adding decode
+   profiling above 65 536 at M3 would permit a native run later.
+
+**Alternatives rejected.**
+
+- **Native, untruncated** — 0 pp workload distortion, but 2.14 % of requests fall
+  outside profiled decode data. Remains the preferred end state *if* M3 adds the
+  profiling. Not rejected permanently; deferred.
+- **Consistent scaling** — preserves the sharing ratio exactly (0.00 pp at every
+  factor, verified). Rejected for **loss of external validity**, not for breaking
+  the timing model: a scaled workload is priced correctly but is no longer
+  Mooncake, and exercises a different operating regime.
+- **Truncate at 32 768** — +1.05 pp, 85.2 % of blocks. Strictly worse than D′ on
+  every axis and needs the same model substitution.
+- **Fit the released 8 192 window** (drop or truncate at 8k) — +4.16 / +6.36 pp,
+  retaining 13.5 % / 43.2 % of prefix blocks. Discards most of the structure RQ1
+  measures.
+
+**Consequences.**
+
+- Two Mooncake workloads exist from now on. Results must state which was used;
+  the native one is not a drop-in substitute and vice versa.
+- The +0.44 pp inflation is a known, recorded bias in the direction of *more*
+  apparent sharing. It is far below the frozen practical-significance thresholds
+  (`PROJECT_SPEC.md` §11) but must be carried into RQ1's interpretation.
+- Every result depending on this carries an unvalidated timing proxy until M11.
+- a100 TP=2 and TP=4 have **no** profiling data and must not be used as replica
+  configurations without new profiling.
+
+**Gates that remain OPEN — this decision is not final until all three close.**
+
+| Gate | Milestone | Question |
+|---|---|---|
+| **G1 feasibility** | M4 | Does an end-to-end long-context run complete, at what predictor-fit cost (`estimate` 11–14 h, unverified) and peak memory? |
+| **G2 predictor behaviour** | M4 | Does Vidur's random forest flat-line outside its training range as assumed? |
+| **G3 fidelity** | M11 / E8 | Does the Meta-Llama-3-8B profile represent real Llama-3.1-8B at long context, or is additional profiling required? |
+
+**Would falsify this.** G1 failing on available hardware (→ reconsider budget or
+model). G2 showing the predictor does something other than flat-line (→ re-open
+native). G3 showing the proxy does not transfer (→ new profiling at M3, or a
+different model). Any reversal is recorded as a superseding entry, never by
+editing this one.
