@@ -117,7 +117,7 @@ scaling by default.**
 
 | Item | Status |
 |------|--------|
-| GitHub remote | M1 corrections + closure pushed 2026-09-10; remote verified equal to local `HEAD` |
+| GitHub remote | **In sync as of 2026-09-10.** M1 (2 commits) and M2 (2 commits) pushed by the user; `git ls-remote origin refs/heads/main` returns `183fff9289d5fcf7965c40b66284bd88d676a5e3`, equal to local `HEAD`. The assistant cannot push from this machine — no credential helper, no SSH key, `gh` present but not authenticated. Pushes are manual until that changes. |
 | Git identity | repo-local: Sonia Tasmin / stasmin10@gmail.com, so the office GitLab identity is never used |
 | `.spike/` working area | git-ignored; holds both M1 candidate clones + venvs + the ASTRA-Sim build. Recreate from `REPRODUCE.md` §3a; safe to delete |
 | Mooncake trace | **re-derived** from upstream @ `eeaca79`; F4 retired |
