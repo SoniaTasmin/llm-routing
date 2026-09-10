@@ -1,0 +1,17 @@
+{
+  "name": "azure-2023-conv",
+  "source": "azure",
+  "prefix_structure": "absent",
+  "num_requests": 19366,
+  "schema_version": "1.0",
+  "block_size": null,
+  "upstream_url": "https://github.com/Azure/AzurePublicDataset",
+  "upstream_commit": null,
+  "upstream_sha256": "2f1e5b666d4e3055fdbba98598ce2ec307767b9064e03e2fa46676dbcc7d0bf8",
+  "transformation": "TIMESTAMP -> arrival_s (seconds from first record); ContextTokens -> num_prefill_tokens; GeneratedTokens -> num_decode_tokens; NO prefix structure emitted.",
+  "nominal_phi": null,
+  "realised_sharing": null,
+  "seed": null,
+  "notes": "CACHE-BLIND CONTROL (DECISIONS.md D-004). The Azure public traces carry no prompt content and no prefix identifiers. No cache-hit or prefix-sharing claim may be derived from this workload. Its purpose is realistic arrival and length distributions, and to serve as the null condition for RQ1.",
+  "extra": {}
+}

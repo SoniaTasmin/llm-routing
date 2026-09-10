@@ -454,3 +454,132 @@ No new benchmarks were run to strengthen the recommendation; the user explicitly
 ruled that out, and it would have been the wrong instinct anyway.
 
 **M1 is closed.** M2 begins.
+
+---
+
+## 2026-09-10 — M2: vendoring, schema, three loaders, and a generator that lied
+
+**Week 2.** M1 closed. M2 built to its acceptance criteria in one session, with
+one open decision handed back to the user.
+
+### Vendoring
+
+Vidur `canary` extracted at `25e0082` with `git archive`, so the tree is provably
+that commit rather than a copy of a working directory that might have drifted.
+**1.4 MB of code vendored; 584 MB of `data/` deliberately not** — 503 MB of that
+is profiling CSVs, which do not belong in a public repository backing an academic
+application. A SHA-pinned `fetch_vidur_data.sh` retrieves them from the same
+commit, so the pin covers the excluded files exactly as much as the included ones.
+
+A tree checksum sits in `VENDOR_TREE_SHA256`. It earned its keep within the hour
+— see the cwd mistake below.
+
+### The generator that reported a rate it could not produce
+
+The synthetic phi generator's first construction kept a pool of sessions and
+inherited `k = round(phi * n)` leading blocks from a randomly chosen one, clamped
+to that session's chain length. It looked right. The measurement said otherwise:
+
+| nominal phi | realised (first construction) |
+|---|---|
+| 0.25 | 0.2514 |
+| 0.50 | 0.4524 |
+| 0.75 | 0.6092 |
+| **0.90** | **0.6845** |
+
+The tests caught it because I had asserted `measured > phi - 0.12`, and 0.685 for
+a nominal 0.9 fails that. My first instinct was that the tolerance was too tight.
+It was not — the generator was wrong.
+
+Instrumenting the loop found it: sessions had a **mean chain length of 5 blocks**,
+and **40 % of requests** could not find a session long enough to inherit from.
+The cause was that each request *replaced* its session's chain rather than
+extending it, so a chain was only ever as long as its last request (U[2,16]), and
+selecting long chains consumed them.
+
+The fix was to model what actually produces prefix sharing in real serving: a
+**multi-turn conversation**, where turn *t*'s prompt contains everything said so
+far. Chains only grow; each turn appends `max(1, round(L*(1-phi)/phi))` new
+blocks, which makes per-request sharing `L/(L+new) ≈ phi` by construction. A
+session retires when its chain would exceed the cap.
+
+| nominal phi | realised (now) | gap |
+|---|---|---|
+| 0.00 | 0.0000 | 0.0000 |
+| 0.25 | 0.2360 | +0.0140 |
+| 0.50 | 0.4908 | +0.0092 |
+| 0.75 | 0.7413 | +0.0087 |
+| 0.90 | 0.8805 | +0.0195 |
+
+Monotonic, within 0.02 throughout, and still slightly below nominal — as it must
+be, since every session's opening turn inherits nothing.
+
+**Why this entry matters more than the numbers.** `PROJECT_SPEC.md` §7 says
+nominal phi may not be reported as if it were measured. Had I not measured, I
+would have shipped a "phi = 0.9" workload that actually shares 0.68 — and E2, the
+experiment that locates the *threshold* at which cache-aware routing starts to
+pay, would have had its x-axis quietly compressed at exactly the end where the
+effect is supposed to appear. The rule is not bureaucratic. It caught a real one.
+
+### F4 — the shipped Mooncake CSV: verdict, does not fire
+
+Compared our re-derivation against upstream `kvcache-ai/Mooncake` @ `eeaca79`.
+Record counts, decode lengths and arrival times match exactly. Block size is
+**512**, established empirically (100 % of records; 16/64/128/256/1024 match
+none). Realised sharing: upstream 36.64 %, shipped CSV 35.88 % — **−0.77 pp**, so
+the re-blocking to 16 tokens preserves the structure.
+
+Three modifications we decline to adopt:
+
+1. **Every prompt is +512 tokens** in the shipped CSV, uniformly, all 12 031 rows.
+   Not block-padding, not `len(hash_ids)*512`. Reason not recoverable from source.
+   ~7 % inflation on the median request.
+2. **`session_id` is invented.** Upstream has none. The shipped CSV's 7 417
+   sessions capture the structure well (87 % of reuse falls within them) — but our
+   B3 and Vidur's `sticky_lor` *route on this field*. Adopting it would mean
+   routing on someone else's inferred grouping while reporting results about
+   Mooncake. Our loader sets it `None`, and deriving sessions ourselves becomes M6
+   work.
+3. **Hash chain extended over decode tokens.** Defensible for a cache model, wrong
+   for a router input: a router at admission cannot know what will be generated.
+
+F4 is retired by removing the dependency, not by trusting it.
+
+### F6 — I was wrong in M1 about what the limit was
+
+M1 concluded that no shipped model configuration has a context window large
+enough for Mooncake. That was true of the **declared `max_model_len` values** and
+**wrong about the profiling data**, which is what actually determines whether the
+timing model can be trusted.
+
+Surveying all 22 shipped profile bundles: `Meta-Llama-3-8B` and `-70B` on a100
+and h100 have `max_kv_cache_size = 262 112` tokens — past Mooncake's 126 527-token
+maximum. Every other model stops at 4 032. The M1 spike used `Llama-2-7b-hf`,
+which is in the second group, and I generalised from one model to all of them.
+
+`prefill_chunk_size` (4 096 / 8 192) and `kv_cache_size` (262 112) are different
+quantities: with chunked prefill, a long prompt is processed in bounded chunks
+while the *KV cache* is what grows with context. I conflated them in M1.
+
+So Option D — run at native lengths on Llama-3-8B — distorts the workload by
+**0 pp**, against +1.05 pp for the best truncation and +20 pp for filtering at
+4 k. Recommended, with the honest caveat that the predictor-fit cost at extended
+KV is unmeasured and could fire F2. Presented for the user's decision; nothing
+adopted.
+
+### A mistake worth recording: cwd drift
+
+Three M2 documents were written into `.spike/vidur-canary/docs/` instead of
+`docs/`, because a heredoc inherited a `cd` from an earlier command. Caught by
+`git status` showing them absent, not by noticing at the time. Moved, and the
+vendored tree checksum re-verified as intact.
+
+The lesson is small but real: **long sessions accumulate shell state, and
+`cat > relative/path` trusts it.** Absolute paths, or verify placement.
+
+### Not done, deliberately
+
+No simulator modifications. No routing policies. No experimental sweeps. No vLLM
+calibration. No Kubernetes. The vendored tree is untouched and checksum-verified.
+Validation was limited to what establishes loader and generator correctness: 31
+tests.

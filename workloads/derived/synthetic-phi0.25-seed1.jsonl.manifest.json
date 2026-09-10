@@ -1,0 +1,23 @@
+{
+  "name": "synthetic-phi0.25-seed1",
+  "source": "synthetic",
+  "prefix_structure": "present",
+  "num_requests": 4000,
+  "schema_version": "1.0",
+  "block_size": 512,
+  "upstream_url": null,
+  "upstream_commit": null,
+  "upstream_sha256": null,
+  "transformation": "generated: growing-conversation sessions, opener 2 blocks, per turn new = max(1, round(L*(1-phi)/phi)), chain cap 64 blocks, decode ~ U[64,512], arrivals ~ Poisson(10.0/s), session pool 64",
+  "nominal_phi": 0.25,
+  "realised_sharing": 0.236015107247203,
+  "seed": 1,
+  "notes": "NOMINAL phi = 0.25; MEASURED realised sharing = 0.2360. These are different quantities and only the measured one may be reported as a property of this workload (PROJECT_SPEC.md \u00a77). Realised sits below nominal by construction: session-opening requests have nothing to inherit.",
+  "extra": {
+    "total_blocks": 56132,
+    "reused_blocks": 13248,
+    "unique_blocks": 42884,
+    "within_session_blocks": 13248,
+    "cross_session_blocks": 0
+  }
+}

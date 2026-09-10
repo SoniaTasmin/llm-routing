@@ -33,3 +33,9 @@ Thumbs.db
 # M1 spike working area: third-party simulator clones, venvs, build output.
 # Cloned by hand per docs/spike/, never committed (see REPRODUCE.md).
 .spike/
+
+# Derived workloads: regenerate with `python workloads/build_workloads.py`.
+# The .manifest.json sidecars ARE committed — they carry provenance, the
+# upstream SHA-256 and the measured realised sharing, which is the evidence.
+workloads/derived/*.jsonl
+!workloads/derived/*.manifest.json

@@ -15,7 +15,7 @@
 |-----------|-----------|---------------|
 | Repository + documentation | M1 (scaffold) | yes — `git clone` |
 | Simulator base decision | M1 | **yes** — see §3a and `docs/spike/` |
-| Workload loaders / synthetic generator | M2 | not yet |
+| Workload loaders / synthetic generator | M2 | **yes** — see §3b |
 | vLLM calibration | M3 | not yet |
 | Simulator | M4 | not yet |
 | Policies B1/B2 | M5 | not yet |
@@ -157,6 +157,52 @@ docker exec servingsim_docker python -m serving \
   --dataset workloads/example_trace.jsonl \
   --output outputs/spike_single_run.csv --num-reqs 10
 ```
+
+## 3b. Reproducing the M2 workloads
+
+Source traces are **not** vendored — they are large and they are other people's
+data. Fetch them into the git-ignored `.spike/` area, then build:
+
+```bash
+# Mooncake (primary trace, ~3 MB of the repo's FAST25 release)
+mkdir -p .spike/mooncake_upstream && cd .spike/mooncake_upstream
+git clone --filter=blob:none --no-checkout https://github.com/kvcache-ai/Mooncake.git repo
+cd repo
+git sparse-checkout set --no-cone "FAST25-release/traces/conversation_trace.jsonl"
+git checkout HEAD          # verified at eeaca79aa298fdaf89580f0db1f12340ea206b32
+cd ../../..
+
+# Azure 2023 LLM inference traces (cache-blind control, ~1 MB)
+mkdir -p .spike/azure && cd .spike/azure
+for f in AzureLLMInferenceTrace_conv.csv AzureLLMInferenceTrace_code.csv; do
+  curl -sSL -o "$f" \
+    "https://raw.githubusercontent.com/Azure/AzurePublicDataset/master/data/$f"
+done
+cd ../..
+
+# Vidur profiling data + processed traces, at the SHA pinned by D-006 (~584 MB)
+bash simulator/vendor/fetch_vidur_data.sh
+
+# Build every derived workload
+python -m venv .venv && . .venv/bin/activate && pip install pytest
+python workloads/build_workloads.py
+python -m pytest tests/ -q
+```
+
+`measured` on this machine, 2026-09-10:
+
+| Workload | Requests | Realised prefix sharing |
+|---|---|---|
+| `mooncake-conversation` | 12 031 | **38.19 %** |
+| `azure-2023-conv` | 19 366 | **cache-blind** — none may be reported (D-004) |
+| `azure-2023-code` | 8 819 | **cache-blind** |
+| `synthetic-phi0` … `phi0.9` | 4 000 each | 0.0000 / 0.2360 / 0.4908 / 0.7413 / 0.8805 |
+
+The derived `.jsonl` files are git-ignored and regenerable. Their
+`.manifest.json` sidecars **are** committed: they carry the upstream SHA-256 and
+the measured realised sharing, which is the evidence a result may cite.
+
+Test suite: **31 tests**, all passing.
 
 ## 4. Reproducing experiments
 

@@ -1,0 +1,17 @@
+{
+  "name": "mooncake-conversation",
+  "source": "mooncake",
+  "prefix_structure": "present",
+  "num_requests": 12031,
+  "schema_version": "1.0",
+  "block_size": 512,
+  "upstream_url": "https://github.com/kvcache-ai/Mooncake :: FAST25-release/traces/conversation_trace.jsonl",
+  "upstream_commit": null,
+  "upstream_sha256": "b8cbb061a85206d729d91cdc2981f43c9e0d99209dce588d3af5f7934408b9df",
+  "transformation": "timestamp ms -> arrival_s seconds; input_length -> num_prefill_tokens (unchanged); output_length -> num_decode_tokens (unchanged); hash_ids truncated to floor(prefill/512) whole blocks; session_id left None (absent upstream).",
+  "nominal_phi": null,
+  "realised_sharing": null,
+  "seed": null,
+  "notes": "Re-derived from upstream per falsifier F4. NOT the preprocessed CSV shipped with Vidur canary; see docs/workload-mooncake-f4.md for the differences and why they matter.",
+  "extra": {}
+}

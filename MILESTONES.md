@@ -107,7 +107,7 @@ from the upstream trace is falsifier F4 in `recommendation.md`.
 ---
 
 ## M2 — Trace loaders + unified format + synthetic phi generator
-**Week:** 2 · **State:** `IN PROGRESS` (started 2026-09-10)
+**Week:** 2 · **State:** `AWAITING APPROVAL` (work complete 2026-09-10; one open user decision, F6)
 
 **Objective.** A unified workload record format, three loaders that emit it, and
 a synthetic generator whose realised prefix sharing is *measured* rather than
@@ -126,16 +126,31 @@ assumed — so that every later milestone consumes one schema regardless of sour
    options for a user decision before adopting any of them.
 
 **Acceptance criteria.**
-- [ ] Vidur `canary` vendored at the exact D-006 SHA, licence + provenance recorded.
-- [ ] Unified workload schema defined, documented, and versioned.
-- [ ] Mooncake re-derived from upstream and compared against the shipped CSV,
-      with a written verdict on F4.
-- [ ] Azure 2023 loader emitting the unified schema, with prefix fields
-      explicitly absent (cache-blind by construction, not by omission).
-- [ ] Synthetic generator emitting block hashes, with realised prefix sharing
-      **measured** and reported alongside nominal phi.
-- [ ] Loader/generator correctness tests — only what establishes correctness.
-- [ ] F6 options presented to the user; decision recorded before adoption.
+- [x] Vidur `canary` vendored at the exact D-006 SHA (`25e0082`), extracted with
+      `git archive` so it is provably that commit. MIT licence and provenance in
+      `simulator/vendor/PROVENANCE.md`; tree checksum in `VENDOR_TREE_SHA256`,
+      verified intact. Code only (1.4 MB); the 584 MB `data/` is fetched at the
+      same SHA by `fetch_vidur_data.sh`.
+- [x] Unified workload schema v1.0 — `src/workload/schema.py`, documented in
+      `docs/workload-schema.md`. Cache-blindness declared not inferred; block
+      hashes mandatory when prefix structure is claimed; hashes cover whole
+      prefill blocks only; every workload carries a provenance manifest.
+- [x] Mooncake re-derived from upstream (`kvcache-ai/Mooncake` @ `eeaca79`) and
+      compared against the shipped CSV. **F4 does not fire** — verdict and
+      evidence in `docs/workload-mooncake-f4.md`. Realised sharing **38.19 %**.
+- [x] Azure 2023 loader (conv 19 366 + code 8 819 requests), cache-blind **by
+      construction** — the schema refuses to attach a sharing rate to it.
+- [x] Synthetic generator emitting block hashes, realised sharing **measured**:
+      phi 0/0.25/0.5/0.75/0.9 -> 0.0000/0.2360/0.4908/0.7413/0.8805.
+- [x] Loader/generator correctness tests — **31 tests, all passing**. They caught
+      a real generator defect (see `NOTEBOOK.md` 2026-09-10).
+- [ ] **F6 options presented; decision recorded before adoption.** Options and a
+      recommendation are in `docs/workload-mooncake-context-length-f6.md`.
+      **AWAITING USER DECISION** — no option adopted; loaders apply no filtering
+      or scaling by default.
+
+**State:** every criterion except the F6 decision is met. That decision is the
+user's, not the assistant's.
 
 **Explicitly NOT in this milestone.** Simulator modifications. Routing policies
 B1/B2/B3/B4. Experimental sweeps. vLLM calibration. Kubernetes. Any change to

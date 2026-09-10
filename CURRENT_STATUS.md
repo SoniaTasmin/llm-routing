@@ -1,6 +1,6 @@
 # CURRENT_STATUS.md — What Is Happening RIGHT NOW
 
-**Last updated:** 2026-09-10
+**Last updated:** 2026-09-10 (M2 work complete)
 **Project week:** Week 2 of 12
 **Branch:** `main` · **Remote:** `SoniaTasmin/llm-routing` (public)
 
@@ -12,7 +12,7 @@
 |-----------|-------|-------|
 | **M0** | Research specification (framing, RQs, policies, experiments, stats) | **APPROVED AND FROZEN** |
 | **M1** | Simulator-base spike (Vidur vs LLMServingSim vs small custom DES) | **DONE (approved 2026-09-10)** |
-| **M2** | Trace loaders + unified format + synthetic phi generator | **IN PROGRESS** |
+| **M2** | Trace loaders + unified format + synthetic phi generator | **WORK COMPLETE — AWAITING APPROVAL** (one open decision: F6) |
 | M3+ | everything else | NOT STARTED — do not implement |
 
 ---
@@ -45,39 +45,59 @@ Artefacts: `docs/spike/` (5 files), `DECISIONS.md` D-006 + D-007, `NOTEBOOK.md`.
 
 ---
 
-## M2 — in progress
+## M2 — work complete, awaiting approval
 
 **Objective.** One unified workload record format, three loaders that emit it,
 and a synthetic generator whose realised prefix sharing is *measured* rather than
 assumed — so every later milestone consumes one schema regardless of source.
 
-Approved scope: vendor Vidur `canary` at the D-006 SHA · define the unified
-schema · re-derive Mooncake from upstream and check it against the shipped CSV
-(**F4**) · Azure 2023 cache-blind control loader (**D-004**) · synthetic phi
-generator with externally supplied block hashes and measured realised sharing ·
-investigate Mooncake's context-length constraint (**F6**) and bring options back
-for a decision.
+**Delivered.**
 
-**Out of scope for M2, explicitly:** simulator modifications · routing policies
+| | Result |
+|---|---|
+| Vendored simulator | Vidur `canary` @ `25e0082`, extracted with `git archive`; MIT licence + provenance recorded; tree checksum verified. Code 1.4 MB; the 584 MB `data/` is fetched at the same SHA by `fetch_vidur_data.sh` |
+| Schema v1.0 | `src/workload/schema.py` + `docs/workload-schema.md` |
+| Mooncake | re-derived from `kvcache-ai/Mooncake` @ `eeaca79`; **12 031** requests; realised sharing **38.19 %** `measured` |
+| Azure 2023 | conv **19 366** + code **8 819** requests, **cache-blind by construction** |
+| Synthetic phi sweep | nominal 0/0.25/0.5/0.75/0.9 -> **measured** 0.0000/0.2360/0.4908/0.7413/0.8805 |
+| Tests | **31 passing** — they caught a real generator defect |
+| **F4** | **does not fire** — `docs/workload-mooncake-f4.md` |
+| **F6** | options + recommendation prepared; **awaiting your decision** |
+
+**Out of scope, and not done:** simulator modifications · routing policies
 B1/B2/B3/B4 · experimental sweeps · vLLM calibration · Kubernetes · any change
-to RQ2/E3 scope. Validation is limited to establishing loader and generator
-correctness.
+to RQ2/E3 scope. The vendored tree is untouched and checksum-verified.
 
 ---
 
 ## Open decision awaiting the user
 
-**F6 — Mooncake's context length.** The shipped Mooncake trace has a median
-request of 7 767 tokens, p95 **40 568**, max **127 039**. The largest context
-window any model config Vidur ships is **32 768**; the models with profiling data
-we would realistically use are **4 096**. So the primary trace does not fit the
-simulator at native lengths.
+**F6 — Mooncake's context length.** Full analysis and a recommendation:
+`docs/workload-mooncake-context-length-f6.md`.
 
-Whatever we do about that — filter, scale, or add a long-context configuration —
-**changes the prefix-sharing structure RQ1 measures**, so it is a research
-decision, not a configuration detail. Options, consequences and a recommendation
-are being prepared; **no option will be adopted before the user decides.**
-Independent M2 work continues meanwhile.
+Our re-derived trace has median 7 255 tokens, p95 40 056, max 126 527. Every way
+of making it fit distorts the prefix sharing RQ1 measures — `measured` against a
+38.19 % baseline:
+
+| Option | Distortion | Retention |
+|---|---|---|
+| **D — Llama-3-8B at native lengths (recommended)** | **0 pp** | 100 % |
+| B — truncate to 32 768 | +1.05 pp | 100 % |
+| A — drop >32 768 | +1.40 pp | 93 % |
+| B — truncate to 4 096 | +12.94 pp | 100 % |
+| A — drop >4 096 | +20.22 pp | 32 % |
+| C — scale ×0.0625 | +38.13 pp | 100 % |
+
+**Correcting an M1 claim:** M1 said no shipped model config has a large enough
+context. That was true of declared `max_model_len` values and **wrong about the
+profiling data**. `Meta-Llama-3-8B` and `-70B` on a100/h100 are profiled to
+`kv_cache_size = 262 112` tokens — past Mooncake's maximum. Every other model
+stops at 4 032, and M1 used `Llama-2-7b-hf`, one of those.
+
+Option D's cost is an unmeasured increase in Vidur's one-time predictor-fit time
+(falsifier **F2**), which must be measured at M4 before D is relied on.
+
+**No option adopted. Loaders apply no filtering or scaling by default.**
 
 ---
 
@@ -88,8 +108,8 @@ Independent M2 work continues meanwhile.
 | GitHub remote | M1 corrections + closure pushed 2026-09-10; remote verified equal to local `HEAD` |
 | Git identity | repo-local: Sonia Tasmin / stasmin10@gmail.com, so the office GitLab identity is never used |
 | `.spike/` working area | git-ignored; holds both M1 candidate clones + venvs + the ASTRA-Sim build. Recreate from `REPRODUCE.md` §3a; safe to delete |
-| Mooncake trace | re-derivation from upstream is **M2 work in progress** (F4) |
-| Azure LLM inference traces | loader is **M2 work in progress** |
+| Mooncake trace | **re-derived** from upstream @ `eeaca79`; F4 retired |
+| Azure LLM inference traces | **loaded** (conv + code), cache-blind by construction |
 | vLLM testbed / GPU access | not yet arranged (needed by M3 and M11) |
 
 ## Risks carried out of M1
@@ -99,9 +119,9 @@ Independent M2 work continues meanwhile.
 | F1 | R4 heterogeneity may exceed 8 engineer-days — checked by the bounded probe in `recommendation.md` §5a | M4 (probe) / M7 (implementation) |
 | F2 | Vidur's per-process predictor tax (`measured` 32–115 s) and 4.02 GB peak RSS may make the E1 fleet sweep infeasible on this hardware | M4 |
 | F3 | `canary`'s prefix cache may not faithfully port vLLM's block-pool semantics | M4 |
-| F4 | The shipped Mooncake CSV may not be re-derivable from upstream | **M2 — active** |
+| F4 | The shipped Mooncake CSV may not be re-derivable from upstream | **RETIRED 2026-09-10** — does not fire; we use our own re-derivation |
 | F5 | `canary` is unmerged, last commit 2025-06-25, and will not be maintained | mitigated by vendoring at a pinned SHA |
-| F6 | Mooncake at native lengths exceeds every model context Vidur ships | **M2 — active, awaiting user decision** |
+| F6 | Mooncake at native lengths exceeds every model context Vidur ships | **narrowed** — Llama-3 profiles cover 262 112 tokens; awaiting user decision on Option D |
 
 Full statement of each: `docs/spike/recommendation.md` §5.
 
