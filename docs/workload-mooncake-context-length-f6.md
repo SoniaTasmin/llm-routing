@@ -116,13 +116,34 @@ them; that was a MemoryPlanner calculation with no profile behind it.
 
 ### Joint coverage — a100 TP=1, the reference configuration for D′
 
-**Decode** (176 distinct batch sizes, 322 KV values each at this TP):
+**Decode** — **43 744 rows**, 176 distinct batch sizes. The grid is **not** a
+full cross product, and rev 2's "322 KV values each" implied one (176 × 322 =
+56 672, against 43 744 actual). Actual structure:
 
-| batch_size | max kv_cache_size | | batch_size | max kv_cache_size |
-|---|---|---|---|---|
-| 1 – 64 (all) | **65 536** | | 128 | 36 352 |
-| 96 | 48 384 | | 192 | 24 064 |
-| 256 | 18 176 | | 512 | 8 960 |
+| batch_size | KV values sampled | max kv_cache_size |
+|---|---|---|
+| 1 – 64 (71 batch sizes) | **320** | **65 536** |
+| 96 | 253 | 48 384 |
+| 128 | 206 | 36 352 |
+| 192 | 158 | 24 064 |
+| 256 | 135 | 18 176 |
+| 384 | 111 | 12 032 |
+| 512 | 99 | 8 960 |
+
+Reconciliation: summing distinct `(batch, kv)` pairs gives **43 184**; the file
+holds 43 744 rows, so **560 pairs are repeated measurements**, which
+`_load_attention_df`'s `drop_duplicates()` collapses only when the whole row
+matches. Row counts and pair counts are different quantities and are now
+reported separately.
+
+**Directly sampled vs. interpolated.** The 320 KV values at batch ≤ 64 are not
+uniformly spaced: step 32 for the first 31 intervals, then 64 for 48, then 256
+for the remaining 240 — spanning 32 … 65 536. So a request decoding at, say,
+kv = 40 000 sits **between** sampled points and its cost is **interpolated by the
+random forest within audited coverage**, not directly measured. That is a normal
+and intended use of the predictor — it is what the model is for — but it is a
+different epistemic status from a measured point, and "inside coverage" should be
+read as "inside the convex hull of sampled points", not "measured".
 
 Above batch 64 the sweep is pruned by the aggregate-token limit. **That pruning
 is not a gap for us**: MemoryPlanner gives this configuration 483 328 KV tokens,
@@ -262,10 +283,17 @@ chain lengths are preserved:
 Sharing is **exactly invariant** under consistent scaling, at every factor. The
 +38 pp rev 1 reported was entirely my own transformation error.
 
-**This does not make C a good option** — see §5. Scaling changes every request's
-compute and memory cost, so it preserves the workload's *structure* while
-destroying the *timing model's* validity. It is rejected for that reason, not the
-one rev 1 gave.
+**This does not make C a good option, and the reason matters** — see §5.
+Two corrections to how rev 2 put it:
+
+- Scaling does **not** destroy the timing model's validity. A scaled request is
+  priced correctly for the request it now is. What scaling costs is **external
+  validity**: the workload is no longer Mooncake.
+- Preserving the sharing **ratio** is not the same as preserving the **trace**.
+  Consistent scaling changes every request's prompt length, block size, KV
+  footprint and batch occupancy. One summary statistic is invariant; the workload
+  underneath it is materially different. Rev 2's "0.00 pp" line invited exactly
+  the conflation this document keeps having to correct.
 
 ### 4d. "Long requests share the most" — **false**
 
@@ -318,9 +346,9 @@ The three axes are distinct and rev 1 collapsed all of them:
 
 | | Trace structure preserved? | Timing model valid *for what is simulated*? | Represents Mooncake's operating regime? |
 |---|---|---|---|
-| Consistent scaling | **yes** — 0.00 pp, exactly | **yes** | **no** — different lengths, resource demands, regime |
-| Native, decode beyond 65 536 | **yes** — 0.00 pp | **no** for 2.14 % of requests — RF extrapolation | yes |
-| **D′ — truncate at 65 536** | mostly — +0.44 pp, 95.81 % of blocks | **yes** — all inside profiled coverage | mostly — alters 2.14 % of requests |
+| Consistent scaling | **ratio only** — the sharing ratio is 0.00 pp, but lengths, block size and resource demands all change, so the *trace* is not preserved | within coverage, if the scaled shapes fall inside it | **no** — different lengths, resource demands, regime |
+| Native, decode beyond 65 536 | **yes** — 0.00 pp | **outside audited coverage** for 2.14 % of requests — RF extrapolation | yes |
+| **D′ — truncate at 65 536** | mostly — +0.44 pp, 95.81 % of blocks | **within audited profile coverage; timing-proxy fidelity unvalidated** | mostly — alters 2.14 % of requests |
 
 "0 pp" establishes only that we did not alter the trace. Scaling is rejected for
 losing the operating regime, not for breaking the simulator.
@@ -349,8 +377,10 @@ losing the operating regime, not for breaking the simulator.
 
 ### Why this is the cheapest defensible path
 
-1. **Every request sits inside profiled data**, prefill and decode, across the
-   whole memory-feasible batch range (§2). No random forest extrapolates.
+1. **Every request sits inside audited profile coverage**, prefill and decode,
+   across the whole memory-feasible batch range (§2). No random forest
+   extrapolates — though many points are interpolated within coverage rather than
+   directly sampled, and the timing proxy itself remains unvalidated (§1).
 2. **No new profiling is required to run.** Whether any is required to *believe*
    the result is for M3/M11 to decide (§1).
 3. **It distorts less than every alternative except native**, and native buys its
@@ -364,11 +394,75 @@ losing the operating regime, not for breaking the simulator.
 
 | # | Uncertainty | Status |
 |---|---|---|
-| U1 | Predictor fit cost. Llama-3-8B's a100 attention training set is 143 786 rows vs Llama-2-7b's 58 632 (**2.45×**). Against M1's `measured` 4 h 37 m, `estimate` **11–14 h**. The prediction grid is model-independent (2 622 080 rows). | **unverified**, F2 |
+| U1 | **Predictor fit cost — point estimate WITHDRAWN.** Rev 2's "11–14 h" came from whole-device row totals (143 786 / 58 632 = 2.45×). `_load_attention_df` **filters training rows by `num_tensor_parallel_workers`**, so the relevant comparison is post-filter: a100 TP=1 attention **14 650 → 65 268 rows = 4.46×** (compute/mlp rows 261 → 456 = 1.75×). Worse than rev 2 claimed. But no replacement point estimate is defensible either: M1's surviving log was captured with `tail`, so only 4 of 11 trained operations are visible, accounting for ~10 m 43 s of a 4 h 36 m 47 s run. The remaining ~4 h 26 m is **unattributed**. Prediction grid is model-independent (2 622 080 rows). | **not reliably estimable — measure at M4**, F2 |
 | U2 | Random-forest flat-lining beyond the training range — inferred, not measured. | **unverified**, M4 |
 | U3 | That the Llama-3 profile represents real Llama-3.1-8B at long context. Architecture supports it; nothing measures it. | **`assumption`**, M3/M11 |
 | U4 | No end-to-end long-context run performed. | **OPEN**, M4 gate |
 | U5 | Achieved batch sizes under D′. §3's figures are static capacity ceilings, not observed concurrency. | **unmeasured**, M4 |
+
+### G4 — block-size mismatch between workload hashes and profiling data
+
+**A compatibility gate found during this pass, not previously recorded.**
+
+Two different block sizes are in play and they are not the same quantity:
+
+| | Value | Set by |
+|---|---|---|
+| **Workload hash granularity** | **512 tokens** | Mooncake's own `hash_ids`; verified on 12 031 / 12 031 records |
+| **Simulator KV block size** | **16 tokens** | `CacheConfig.block_size`, and **forced** by the profiling data |
+
+It is forced, not merely defaulted. `_load_attention_df`
+(`sklearn_execution_time_predictor.py:187-200`) filters training rows on
+
+```python
+df["block_size"] == self._block_size
+```
+
+and **every** shipped attention profile carries `block_size = 16` only. Setting
+the simulator's block size to 512 filters the attention dataframe to **zero
+rows**, and the predictor has nothing to train on. So 16 is not a tunable here.
+
+**Why this is a correctness gate and not a detail.** `hash_request_tokens`
+(`vidur/kv_cache/utils.py`) returns one `BlockHashType` per supplied id when a
+request carries `block_hash_ids`. The cache manager then pairs each id with one
+`block_size`-token block. Handing it 512-granularity ids while it runs 16-token
+blocks would make a 126 195-token prompt with 246 hashes look like
+246 × 16 = 3 936 tokens of cacheable prefix — a ~32× under-count of the cached
+region. **Silently wrong, in the direction of under-reporting cache benefit,
+which is the direction that would bias RQ1 toward "routing sophistication does
+not pay".**
+
+**Intended mapping, to be implemented and validated at M4 — not now.**
+Expand each 512-token Mooncake hash into 32 derived 16-token ids, deterministically
+from the parent id, **for whole 512-blocks only**:
+
+```
+child_ids(parent p) = [f(p, 0), f(p, 1), ..., f(p, 31)]        # f deterministic
+```
+
+Why this is a sound refinement rather than invention: chained hashes make sharing
+a **prefix relation**. If two requests share the first *k* 512-token blocks, their
+first 512*k* tokens are identical, so their first 32*k* 16-token blocks are
+identical too. The expansion states something the coarse hashes already imply.
+
+Why it is nonetheless **conservative and must be labelled so**: a request's
+prompt tail below a 512-token boundary is not hashed upstream, so up to 31 whole
+16-token blocks per request carry **no** sharing information. We leave them
+unhashed rather than guess. Any sharing in that region is invisible to us, so the
+mapping **under-counts** — it never fabricates.
+
+**What we must not do**, and this gate exists to prevent:
+
+- assign shared ids to sub-512 tail blocks — that would invent finer-grained
+  sharing the source does not contain;
+- assume block size has no timing effect. It demonstrably does: `block_size` is a
+  filtered column in the profiling data, and paged-attention kernel time depends
+  on page size. Nothing here licenses treating 16 and 512 as interchangeable.
+
+**Gate G4 (M4):** implement the expansion, verify that realised sharing measured
+at 16-token granularity on the expanded workload is consistent with the 38.63 %
+measured at 512-token granularity, and quantify the conservative bias from the
+unhashed tails.
 
 ### On the smoke-test exception
 

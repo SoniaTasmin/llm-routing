@@ -783,3 +783,81 @@ would have caught all three is mechanical — before quoting an aggregate, state
 its domain (over which rows? which column? which configuration?) and check it
 reconciles against something independent. I am recording that as a standing
 check, not a resolution to be more careful.
+
+---
+
+## 2026-09-10 — F6 rev 4: a consistency pass, and one gate nobody had noticed
+
+Third audit round. Four items, all narrow, and one of them found a correctness
+gate that three previous passes had walked past.
+
+### The arithmetic, again
+
+"176 batch sizes, 322 KV values each" implies 56 672 rows against 43 744 actual.
+The grid is **not a full cross product**: 320 KV values at batch ≤ 64, tapering to
+99 at batch 512 as the aggregate-token limit prunes. Distinct `(batch, kv)` pairs
+= 43 184; the file has 43 744 rows, so **560 are repeat measurements**.
+
+Also now stated: the 320 KV points are **not uniformly spaced** — step 32, then
+64, then 256 across 32 … 65 536. A request decoding at kv = 40 000 sits between
+sampled points, so its cost is **interpolated by the random forest within
+coverage**, not measured. Normal, intended, and a different epistemic status from
+a sampled point. "Inside coverage" means inside the convex hull of samples.
+
+### G4 — the block-size mismatch
+
+This is the one that matters, and it was sitting in plain sight.
+
+Our Mooncake workload hashes at **512 tokens** (upstream's granularity). The
+simulator's KV block size is **16** — and it is *forced*, not defaulted:
+`_load_attention_df` filters training rows on `df["block_size"] == self._block_size`,
+and every shipped profile carries `block_size = 16` only. Set it to 512 and the
+attention dataframe filters to **zero rows**.
+
+`hash_request_tokens` returns one hash per supplied id, and the cache manager
+pairs each with one `block_size`-token block. So handing it 512-granularity ids
+while it runs 16-token blocks would make a 126 195-token prompt with 246 hashes
+look like 246 × 16 = **3 936** tokens of cacheable prefix — a ~32× under-count.
+
+Silently wrong, and **biased in the direction that would make routing
+sophistication look worse than it is** — i.e. toward my own project's null
+result. That is the worst direction for an error to point, because it is the one
+I would be least likely to interrogate.
+
+The intended fix is a deterministic 1→32 expansion for **whole** 512-blocks only.
+It is sound rather than invented: chained hashes make sharing a prefix relation,
+so two requests sharing *k* 512-blocks necessarily share 32*k* 16-blocks. But the
+sub-512 tail carries no sharing information, so those blocks stay unhashed and
+the mapping **under-counts rather than fabricates**. Specified, not implemented —
+M4.
+
+### The fit estimate: withdrawn, not revised
+
+`_load_attention_df` filters by TP. So the right comparison is post-filter:
+a100 TP=1 attention rows **14 650 → 65 268 = 4.46×**, not the 2.45× I got from
+whole-device totals. Worse than I said.
+
+But I could not replace the estimate either. M1's log was captured with `tail`,
+so only 4 of 11 trained operations survive, covering ~10 m 43 s of a 4 h 36 m 47 s
+run. **~4 h 26 m is unattributed.** So I withdrew the number rather than
+regenerating a plausible-looking one from the fragment I had.
+
+That felt worse to write than a range would have. It is the correct answer, and
+noting the discomfort is the point: the pull toward producing *a* number is
+exactly what produced the last three errors.
+
+### And the leftover
+
+Rev 3 fixed the scaling claim in §5 but left the contradictory version standing
+in §4c. Also corrected: preserving one **ratio** is not preserving the **trace**.
+Consistent scaling changes lengths, block size, KV footprint and batch occupancy;
+a single invariant statistic invited exactly the conflation this document has now
+had to correct four times.
+
+### Standing check, now with teeth
+
+Three rounds, same failure: a computed number treated as a fact about the system
+without asking what it ranged over. The mechanical check I wrote last time —
+state an aggregate's domain and reconcile it against something independent —
+would have caught every one of them, including this round's, and I did not run
+it. It is now the first thing to do before any aggregate enters a document.

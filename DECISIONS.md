@@ -529,9 +529,18 @@ blocks and **96.92 %** of reused blocks retained, realised sharing 38.19 % →
 
 | Gate | Milestone | Question |
 |---|---|---|
-| **G1 feasibility** | M4 | Does an end-to-end long-context run complete, at what predictor-fit cost (`estimate` 11–14 h, unverified) and peak memory? |
+| **G1 feasibility** | M4 | Does an end-to-end long-context run complete, at what predictor-fit cost and peak memory? **No defensible cost estimate exists** — see below. |
 | **G2 predictor behaviour** | M4 | Does Vidur's random forest flat-line outside its training range as assumed? |
 | **G3 fidelity** | M11 / E8 | Does the Meta-Llama-3-8B profile represent real Llama-3.1-8B at long context, or is additional profiling required? |
+| **G4 block-size mapping** | M4 | Our workload hashes are **512-token**; the simulator's KV block size is **forced to 16** by the profiling data (`_load_attention_df` filters on `block_size`, and only 16 is present). Handing 512-granularity ids to a 16-token cache under-counts the cached region ~32×. Intended mapping — deterministic 1→32 expansion for **whole** 512-blocks only, leaving sub-512 tails unhashed — is specified in `docs/workload-mooncake-context-length-f6.md` §G4 and must be implemented and validated at M4. It is deliberately **conservative** (under-counts sharing) and must never be extended to invent sharing in the unhashed tails. |
+
+**On the predictor fit cost.** An earlier estimate of 11–14 h has been
+**withdrawn**. It extrapolated from whole-device row totals, but
+`_load_attention_df` filters training rows by `num_tensor_parallel_workers`; the
+post-filter ratio for a100 TP=1 is **4.46×** (14 650 → 65 268 attention rows), not
+2.45×. No replacement estimate is defensible: M1's log was captured with `tail`,
+so only 4 of 11 trained operations are visible, covering ~10 m 43 s of a
+4 h 36 m 47 s run, and the remaining ~4 h 26 m is unattributed. **Measure at M4.**
 
 **Would falsify this.** G1 failing on available hardware (→ reconsider budget or
 model). G2 showing the predictor does something other than flat-line (→ re-open

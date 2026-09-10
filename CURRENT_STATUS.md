@@ -92,18 +92,24 @@ batch size 1–64, and every memory-feasible `(batch, kv)` point is inside the
 profiled grid; prefill covers all 16 KV steps needed to chunk-prefill a 65 536
 prompt at chunk 4 096, 0 missing.
 
-**Corrections made during the audit:** the profiling CSVs carry a
-`num_tensor_parallel_workers` column that rev 2 ignored, which is why its counts
-did not reconcile (322 at TP=1 + 322 at TP=8 = the 644 reported); decode has
-**176** batch sizes, not 512 — that figure came from `prediction_max_batch_size`,
-a predictor default, not the data; **a100 has no TP=2 or TP=4 profiling at all**;
-and the operating-point figure for D′ is **7** concurrent maximum-length
-sequences at TP=1, not the 3 quoted for the native maximum — and it is a
-MemoryPlanner capacity ceiling, not observed concurrency.
+**Corrections made across three audit rounds:** the profiling CSVs carry a
+`num_tensor_parallel_workers` column that was ignored, which is why the counts
+did not reconcile; decode has **176** batch sizes, not 512 (that came from
+`prediction_max_batch_size`, a predictor default); the decode grid is **not** a
+full cross product — 43 744 rows, 320 KV values at batch ≤ 64, 43 184 distinct
+`(batch, kv)` pairs plus 560 repeats; **a100 has no TP=2 or TP=4 profiling**; the
+D′ operating point is **7** concurrent maximum-length sequences at TP=1, and it
+is a MemoryPlanner capacity ceiling, not observed concurrency; and the
+predictor-fit cost estimate is **withdrawn** as underivable from the surviving
+evidence.
 
-**THREE GATES REMAIN OPEN** — D-008 is not final until they close:
-**G1** M4 end-to-end feasibility · **G2** M4 predictor behaviour outside training
-range · **G3** M11/E8 fidelity of the timing proxy.
+**FOUR GATES REMAIN OPEN** — D-008 is not final until they close:
+**G1** M4 end-to-end feasibility (no defensible fit-cost estimate exists; the
+earlier 11–14 h figure is **withdrawn**) · **G2** M4 predictor behaviour outside
+training range · **G3** M11/E8 fidelity of the timing proxy · **G4** M4
+block-size mapping — our workload hashes are 512-token, the simulator's KV block
+size is **forced to 16** by the profiling data, and the 1→32 expansion is
+specified but not implemented.
 
 ---
 
