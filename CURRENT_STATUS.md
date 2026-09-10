@@ -73,46 +73,27 @@ to RQ2/E3 scope. The vendored tree is untouched and checksum-verified.
 
 ## Open decision awaiting the user
 
-**F6 — RESOLVED as D-008 (provisional).** Three analysis revisions were needed;
-rev 1 and rev 2 were both corrected by user audits. Final:
-`docs/workload-mooncake-context-length-f6.md` (rev 3).
+**M3 resource budget.** Plan prepared, nothing spent:
+`docs/m3-calibration-plan.md`.
 
-**Adopted:** simulate a **Llama-3.1-8B-class** model using Vidur's shipped
-`Meta-Llama-3-8B` profile as an **unvalidated timing proxy**, on a Mooncake
-variant truncated to a **65 536-token** context budget.
+| | Option | Spend | Gets us |
+|---|---|---|---|
+| 1 | Pilot only | ~$2 | toolchain proven, throughput measured |
+| **2** | **Pilot + full profile (recommended)** | **~$8–18** | **retires the D′ truncation** — native Mooncake at 0 pp distortion |
+| 3 | + real-vLLM replay | ~$12–22 | above, plus the M11 reference trace early |
+| 4 | Defer M3 | $0 | borrowed profile stands; D′ permanent; G3 open until M11 |
 
-| | Native (preserved) | D′ variant |
-|---|---|---|
-| Requests | 12 031 | 12 031 (**0 dropped**, 257 altered) |
-| Prefix blocks | 276 491 | 264 919 (**95.81 % retained**) |
-| Realised sharing | 38.19 % | 38.63 % (**+0.44 pp**) |
-| Arrivals / output lengths | — | **preserved exactly** |
+Requested cap **$40**, hard stop after the pilot for review.
 
-Coverage audit supporting it (a100 TP=1): decode covers kv ≤ 65 536 at every
-batch size 1–64, and every memory-feasible `(batch, kv)` point is inside the
-profiled grid; prefill covers all 16 KV steps needed to chunk-prefill a 65 536
-prompt at chunk 4 096, 0 missing.
-
-**Corrections made across three audit rounds:** the profiling CSVs carry a
-`num_tensor_parallel_workers` column that was ignored, which is why the counts
-did not reconcile; decode has **176** batch sizes, not 512 (that came from
-`prediction_max_batch_size`, a predictor default); the decode grid is **not** a
-full cross product — 43 744 rows, 320 KV values at batch ≤ 64, 43 184 distinct
-`(batch, kv)` pairs plus 560 repeats; **a100 has no TP=2 or TP=4 profiling**; the
-D′ operating point is **7** concurrent maximum-length sequences at TP=1, and it
-is a MemoryPlanner capacity ceiling, not observed concurrency; and the
-predictor-fit cost estimate is **withdrawn** as underivable from the surviving
-evidence.
-
-**FOUR GATES REMAIN OPEN** — D-008 is not final until they close:
-**G1** M4 end-to-end feasibility (no defensible fit-cost estimate exists; the
-earlier 11–14 h figure is **withdrawn**) · **G2** M4 predictor behaviour outside
-training range · **G3** M11/E8 fidelity of the timing proxy · **G4** M4
-block-size mapping — our workload hashes are 512-token, the simulator's KV block
-size is **forced to 16** by the profiling data, and the 1→32 expansion is
-specified but not implemented.
-
----
+**A finding that re-scoped M3 before any spend:** Vidur's profiler loads **no
+model weights** (`initialize_dummy_weights`, `torch.randn_like`). So no gated
+HuggingFace access and no 16 GB download are needed — but also, re-profiling
+under the name "Llama-3.1-8B" would produce data **identical** to
+`Meta-Llama-3-8B`, because the configs are shape-identical. **Gate G3 therefore
+cannot be closed by Vidur's profiler at all**; only a real-vLLM comparison
+closes it, at M11. M3's genuine value is instead extending decode coverage from
+65 536 to 131 072 tokens, which would **retire the D′ truncation** rather than
+manage it.
 
 ## Known blockers / open items
 
