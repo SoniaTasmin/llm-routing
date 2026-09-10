@@ -125,36 +125,42 @@ assumed — so that every later milestone consumes one schema regardless of sour
 6. Investigate Mooncake's context-length constraint (**F6**) early and present
    options for a user decision before adopting any of them.
 
-**Acceptance criteria.**
-- [x] Vidur `canary` vendored at the exact D-006 SHA (`25e0082`), extracted with
-      `git archive` so it is provably that commit. MIT licence and provenance in
-      `simulator/vendor/PROVENANCE.md`; tree checksum in `VENDOR_TREE_SHA256`,
-      verified intact. Code only (1.4 MB); the 584 MB `data/` is fetched at the
-      same SHA by `fetch_vidur_data.sh`.
-- [x] Unified workload schema v1.0 — `src/workload/schema.py`, documented in
-      `docs/workload-schema.md`. Cache-blindness declared not inferred; block
-      hashes mandatory when prefix structure is claimed; hashes cover whole
-      prefill blocks only; every workload carries a provenance manifest.
-- [x] Mooncake re-derived from upstream (`kvcache-ai/Mooncake` @ `eeaca79`) and
-      compared against the shipped CSV. **F4 does not fire** — verdict and
-      evidence in `docs/workload-mooncake-f4.md`. Realised sharing **38.19 %**.
-- [x] Azure 2023 loader (conv 19 366 + code 8 819 requests), cache-blind **by
-      construction** — the schema refuses to attach a sharing rate to it.
-- [x] Synthetic generator emitting block hashes, realised sharing **measured**:
-      phi 0/0.25/0.5/0.75/0.9 -> 0.0000/0.2360/0.4908/0.7413/0.8805.
-- [x] Loader/generator correctness tests — **31 tests, all passing**. They caught
-      a real generator defect (see `NOTEBOOK.md` 2026-09-10).
-- [x] **F6 options presented; decision recorded before adoption.** Three
-      analysis revisions were needed — rev 1 recommended a hypothetical model and
-      was withdrawn after a user audit found six errors; rev 2 reported profiling
-      counts that did not reconcile; rev 3 audited coverage per device and per TP
-      and supports **D′**. Adopted provisionally as **D-008**, with three gates
-      left open (M4 feasibility, M4 predictor behaviour, M11 fidelity).
-      `docs/workload-mooncake-context-length-f6.md`.
+**Acceptance criteria — verified 2026-09-10.**
 
-**State:** all seven criteria met. **M2 awaits user approval.** D-008 is
-provisional by construction: its feasibility and fidelity gates cannot close
-before M4 and M11.
+| # | Criterion | Evidence | Status |
+|---|---|---|---|
+| 1 | **Vendoring + provenance** | Vidur `canary` at `25e0082dbbfb206fb0477c3ebbededa7ead78949`, extracted with `git archive` so it is provably that commit. MIT licence. **181** Python files, **1.4 MB**. Tree checksum in `VENDOR_TREE_SHA256` — **re-verified INTACT** after the working session. The 584 MB `data/` is not committed; `fetch_vidur_data.sh` retrieves it at the same SHA. `simulator/vendor/PROVENANCE.md` | ✅ |
+| 2 | **Unified schema** | v1.0, `src/workload/schema.py`, documented in `docs/workload-schema.md`. Cache-blindness *declared* not inferred; block hashes mandatory when prefix structure is claimed; hashes cover whole **prefill** blocks only; every workload carries a provenance manifest | ✅ |
+| 3 | **Mooncake re-derivation (F4)** | Re-derived from `kvcache-ai/Mooncake` @ `eeaca79`, `FAST25-release/traces/conversation_trace.jsonl`, sha256 `b8cbb061a85206d7…`. n=**12 031**, block_size **512** verified on 100 % of records. Realised sharing **38.19 %**. **F4 does not fire** — `docs/workload-mooncake-f4.md` | ✅ |
+| 4 | **Native + D′ manifests** | Native preserved **immutable**. D′ variant `mooncake-conversation-trunc65536`: n=**12 031**, **0 dropped**, **257 altered** (2.14 %), block retention **0.9581**, reused-block retention **0.9692**, arrivals and output lengths **preserved exactly**, sharing 38.19 % → **38.63 % (+0.44 pp)**, timing proxy recorded as `UNVALIDATED PROXY` | ✅ |
+| 5 | **Azure cache-blind loader** | conv **19 366** + code **8 819** requests. `prefix_structure=absent`, `realised_sharing=None`, `block_size=None`. Cache-blind **by construction** — the schema refuses to attach a sharing rate (D-004) | ✅ |
+| 6 | **Synthetic φ generator** | Externally supplied block hashes (forced by the confirmed `hash_block_tokens` defect). Nominal → **measured** realised sharing: 0.0 → 0.0000 · 0.25 → 0.2360 · 0.5 → 0.4908 · 0.75 → 0.7413 · 0.9 → **0.8805** | ✅ |
+| 7 | **F6 decision recorded before adoption** | Four analysis revisions; three user audits. Adopted provisionally as **D-008**. `docs/workload-mooncake-context-length-f6.md` | ✅ |
+| — | **Validation** | **38 tests passing** (`pytest tests/ -q`). They caught two real defects: the φ generator producing 0.685 realised sharing for a nominal 0.9, and the truncation invariants | ✅ |
+
+**State:** all seven criteria met. **M2 awaits user approval.**
+
+### Incomplete / deliberately deferred
+
+Nothing here blocks M2 closure; all of it is scheduled work or an open gate.
+
+| Item | Owner | Note |
+|---|---|---|
+| **G4 block-size mapping** — workload hashes are 512-token, the simulator's KV block size is **forced to 16** by the profiling data. The 1→32 expansion is **specified, not implemented** | **M4** | Would otherwise under-count the cached region ~32×, biased toward making routing sophistication look worse than it is |
+| **G1 end-to-end feasibility** — no long-context run performed; predictor-fit cost **has no defensible estimate** (the 11–14 h figure is withdrawn) | **M4** | Full fit not authorised |
+| **G2 predictor behaviour** outside its training range — random-forest flat-lining is inferred, not measured | **M4** | |
+| **G3 timing-proxy fidelity** — the `Meta-Llama-3-8B` profile as a stand-in for Llama-3.1-8B is architecturally supported but unvalidated | **M11 / E8** | |
+| Synthetic sweep generated at **1 seed**; `PROJECT_SPEC.md` §11 requires ≥10 per cell | **M5** | Generator is seeded and deterministic; only the sweep is small |
+| **Mooncake session derivation** — upstream has no `session_id`, and we decline the invented one in the shipped CSV | **M6** | Blocks session-sticky policies on Mooncake until a rule is recorded |
+| a100 **TP=2 / TP=4** have no profiling data at all | M4/M7 | Must not be used as replica configurations without new profiling |
+
+### D-008 gates — all four OPEN
+
+**G1** M4 feasibility · **G2** M4 predictor behaviour outside training range ·
+**G3** M11/E8 proxy fidelity · **G4** M4 block-size mapping.
+
+D-008 is provisional by construction: G1, G2 and G4 cannot close before M4, and
+G3 cannot close before M11.
 
 **Explicitly NOT in this milestone.** Simulator modifications. Routing policies
 B1/B2/B3/B4. Experimental sweeps. vLLM calibration. Kubernetes. Any change to
