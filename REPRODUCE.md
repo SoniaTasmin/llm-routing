@@ -16,7 +16,7 @@
 | Repository + documentation | M1 (scaffold) | yes — `git clone` |
 | Simulator base decision | M1 | **yes** — see §3a and `docs/spike/` |
 | Workload loaders / synthetic generator | M2 | **yes** — see §3b |
-| vLLM calibration | M3 | not yet |
+| vLLM calibration | M3 | **partially** — CPU-side tooling and audit reproducible today (§3c); GPU phases prepared but unrun |
 | Simulator | M4 | not yet |
 | Policies B1/B2 | M5 | not yet |
 | Policy B3 | M6 | not yet |
@@ -203,6 +203,77 @@ The derived `.jsonl` files are git-ignored and regenerable. Their
 the measured realised sharing, which is the evidence a result may cite.
 
 Test suite: **31 tests**, all passing.
+
+## 3c. Reproducing the M3 calibration
+
+**Status: prepared, not run.** No GPU has been rented and no charges incurred.
+Everything below except the two GPU phases runs on CPU today.
+
+### What you can reproduce right now, with no GPU
+
+```bash
+# 1. See exactly what the GPU phases would execute — nothing runs, nothing bills
+bash experiments/m3_calibration/run_profiling.sh plan
+
+# 2. Audit the profile the simulator currently depends on
+PYTHONPATH=src python -m workload.profile_audit_cli \
+  .spike/vidur-canary/data/profiling/compute/a100/meta-llama/Meta-Llama-3-8B/attention.csv \
+  --tp 1 --block-size 16 --require-context 65536
+
+# 3. Run the auditor's own tests
+python -m pytest tests/test_profile_audit.py -q
+```
+
+Step 2 reproduces the coverage audit that D-008 rests on (`measured`, CPU only):
+
+```
+  TPs present         : [1, 8]          <- a100 has NO TP=2 or TP=4 data
+  block_size present  : [16]            <- gate G4: 512 would empty the frame
+  prefill: 21,524 rows, 21,204 distinct pairs, max chunk+kv = 262,144
+  decode : 43,744 rows, 43,184 distinct pairs (560 repeats), 176 batch sizes
+           max kv = 65,536, reached at 71 batch sizes
+  covers 65,536-token request at chunk 4096: True
+  covers 131,072-token request at chunk 4096: False — decode stops at 65,536
+```
+
+That last line is the whole reason the D′ truncation exists (D-008), and the
+reason M3's headline deliverable is extending decode coverage.
+
+### The GPU phases — require approved budget
+
+Not yet run. See `docs/m3-calibration-plan.md` for hardware, software, costed
+options and the decision requested.
+
+```bash
+# On a machine with 1 x A100 80GB (or H100 80GB):
+#   Python 3.10; sarathi-serve @ branch `vidur`; FlashInfer; Vidur from
+#   simulator/vendor/vidur installed with `pip install -e .`
+#   NO HuggingFace token and NO model download are needed — the profiler uses
+#   dummy weights (initialize_dummy_weights / torch.randn_like).
+
+bash experiments/m3_calibration/run_profiling.sh pilot   # ~1 h billed, ~$2
+# review the printed rows/s and the audit before continuing
+bash experiments/m3_calibration/run_profiling.sh full    # 3-8 h billed
+```
+
+Produced profiles land under `calibration/<device>/<model>/`. **They are never
+copied into `simulator/vendor/`** — that tree is immutable
+(`simulator/vendor/PROVENANCE.md`) and its checksum is verified.
+
+### Recording what the run used
+
+The exact CUDA, PyTorch, FlashInfer and `sarathi-serve` versions are **not
+pinned here yet**, because they follow `sarathi-serve`'s own README and we have
+not stood the environment up. Capturing them is part of the pilot:
+
+```bash
+python -c "import torch;print('torch',torch.__version__,'cuda',torch.version.cuda)"
+pip freeze > calibration/environment-$(date +%F).txt
+nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv
+```
+
+Until that file exists, M3 is **not** reproducible in the sense §5 requires, and
+the acceptance criterion stays open.
 
 ## 4. Reproducing experiments
 

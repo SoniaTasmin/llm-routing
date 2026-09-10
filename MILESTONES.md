@@ -183,14 +183,32 @@ shipped `Meta-Llama-3-8B` profile as an **unvalidated proxy**. M3 is where that
 proxy is either validated or replaced.
 
 **Acceptance criteria.**
-- [ ] A calibration plan with exact GPU, model, software versions and a bounded
-      cost, approved by the user **before** any spend.
-- [ ] Vidur's profiler run on the chosen `(model, device, TP)`, producing
-      `attention.csv`, `mlp.csv` and collectives data in the shipped schema.
-- [ ] A short real-vLLM replay on the same hardware, for comparison.
-- [ ] A written verdict on **G3**: does the shipped profile represent our model,
-      or is our own profile required?
-- [ ] Everything reproducible from `REPRODUCE.md` without privileged access.
+- [x] **Calibration plan written** — `docs/m3-calibration-plan.md`: exact GPU,
+      model, software, fixed parameters, two-phase bounded run, costed options,
+      and the M3→M4→M11 dependency map. **Awaiting the user's budget approval**,
+      which is the user's action, not outstanding work.
+- [ ] Vidur's profiler run on the chosen `(model, device, TP)` — **GPU-blocked**.
+      Runbook ready and dry-runnable: `run_profiling.sh plan` prints exactly what
+      would execute without touching a GPU. Collectives profiling is **not
+      required**: our target replica config is TP=1.
+- [ ] A short real-vLLM replay — **GPU-blocked**, and the only route to G3. May
+      be deferred to M11, where the E8 comparison is actually built.
+- [ ] A written verdict on **G3** — **blocked**, and now known to be
+      *unanswerable by Vidur's profiler*: it loads no weights, so a
+      "Llama-3.1-8B" profile would be byte-identical to `Meta-Llama-3-8B`. Only
+      real-vLLM comparison settles it.
+- [ ] Everything reproducible from `REPRODUCE.md` — **partially met.**
+      §3c is written and the CPU-side half (dry run, profile audit, tests) is
+      reproducible today. The criterion stays **open** until a run records its
+      exact CUDA / PyTorch / FlashInfer / `sarathi-serve` versions; those follow
+      `sarathi-serve`'s own README and cannot be pinned before the environment
+      is stood up.
+
+**Prepared and complete (no GPU required).**
+`docs/m3-calibration-plan.md` · `experiments/m3_calibration/run_profiling.sh`
+(three phases: `plan` / `pilot` / `full`) · `src/workload/profile_audit.py` +
+`profile_audit_cli.py` · `tests/test_profile_audit.py` (6 tests) ·
+`REPRODUCE.md` §3c.
 
 **Explicitly NOT in this milestone.** Routing policies. Experimental sweeps. The
 full predictor fit (that is M4/G1). Any spend before approval.
