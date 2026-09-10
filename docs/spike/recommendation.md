@@ -49,16 +49,23 @@ instrument, and `requirements-matrix.md` §4 states the weighting used instead:
   `config_optimizer/config_explorer/capacity_search.py`, a working
   binary-search-to-SLO-break harness that E1 can be built from rather than
   invented.
-- **E1 throughput — measured, and smaller than I first claimed.** Like for
-  like, both with prefix caching on: Vidur `canary` costs **~0.18 s per
-  simulated request**, LLMServingSim **~0.97 s** — about **5.5×**, not the
-  ~60× I got from an unfair first comparison against Vidur `main` running the
-  cheap Sarathi scheduler with no cache. The correction is recorded in
-  `vidur-notes.md`. 5.5× still matters for a search over fleet compositions at
-  ≥10 seeds per cell, and it compounds with Vidur being in-process (many cells
-  per interpreter) against one container-plus-subprocess per LLMServingSim run —
-  but it is a contributing reason, not the decisive one, and the recommendation
-  does not rest on it.
+- **E1 throughput — indicative, not controlled.** Vidur `canary` cost
+  **~0.18 s per simulated request** and LLMServingSim **~0.97 s**, a ratio of
+  roughly **5.5×**. **This is an indicative comparison across two differently
+  configured runs, not a controlled like-for-like benchmark.** Enabling prefix
+  caching on both sides does not make the workloads equivalent: different
+  traces (512 Mooncake requests ≤4 096 tokens vs a 300-request synthetic probe
+  with 1 024-token prompts), different replica counts (4 vs 2), different
+  batching schedulers, different cache configurations. The honest claim is
+  *order-of-magnitude*: Vidur's per-request simulation cost is **single-digit
+  times lower** on the configurations we happened to run.
+
+  An earlier draft claimed ~60×, by comparing against Vidur `main` running the
+  cheap Sarathi scheduler with no prefix cache at all. That was withdrawn.
+  A properly controlled comparison — same trace, same replica count, same cache
+  settings on both simulators — was **not** performed, and is not worth
+  performing now: it would not change the decision, which rests on R2, R5 and
+  R7, not on throughput. Throughput is a contributing consideration only.
 
 ### Extension complexity
 
@@ -67,7 +74,7 @@ instrument, and `requirements-matrix.md` §4 states the weighting used instead:
 | Option | Engineer-days to close all gaps |
 |---|---|
 | **A — Vidur `canary`** | **13.5 – 22.5** |
-| B — LLMServingSim | 22 – 38, plus a measured ~5.5× per-request simulation cost |
+| B — LLMServingSim | 22 – 38, plus an indicatively higher per-request simulation cost (~5.5× on the configurations tested; not a controlled comparison) |
 | C — build our own DES | 17 – 26, plus fidelity risk |
 
 Every Vidur gap is a contained change in one Python process. Two of
@@ -75,7 +82,8 @@ LLMServingSim's cross a subprocess boundary into C++.
 
 ### Research validity
 
-Three points, and the second is the one that decides it:
+Three points. The second is the strongest, but it is narrower than an
+earlier draft of this file claimed — see the correction inside it:
 
 1. **We inherit a published, validated timing model either way** — Vidur
    (MLSys'24) and LLMServingSim (IISWC'24 / ISPASS'26) both derive execution
@@ -88,15 +96,33 @@ Three points, and the second is the one that decides it:
 2. **`canary` already ships cache-aware sticky routing with an overload guard**
    — `sticky_lor_scheduler.py`, `ranked_sticky_lop_uncached_global_scheduler.py`
    and `tolerant_sticky_lop_uncached_global_scheduler.py`, the last with an
-   explicit `tolerance_factor` load-imbalance guard. That is, in substance, our
-   **B3**. Building our study's *treatment* on the Vidur authors' own
-   implementation rather than one we wrote is a **strengthening**, not a
-   weakness: the standing risk in this literature, and the reason
-   `PROJECT_SPEC.md` §5 freezes B2-tok as the comparator, is that authors tune
-   the treatment to win. We cannot be accused of that if the treatment is
-   upstream's. It also inverts the usual failure mode — if our result is
-   negative, it is a negative result about a *published* cache-aware router, not
-   about a straw man we built.
+   explicit `tolerance_factor` load-imbalance guard. These are *candidate*
+   implementations of our **B3**.
+
+   Starting from an upstream implementation **reduces one specific risk** — that
+   we author a treatment whose code we shaped, consciously or not, to favour the
+   outcome we expect. It does **not** eliminate tuning bias, and an earlier draft
+   of this file overclaimed that it did. Two things remain to be established, and
+   neither is free:
+
+   - **Equivalence.** `PROJECT_SPEC.md` §5 specifies B3 as "prefix-affinity
+     routing with a guard that sheds affinity under load". Whether
+     `tolerant_sticky_lop_uncached` *is* that policy, or a related-but-different
+     one, is an open question to be answered by reading and testing it against
+     the spec, not assumed. If it diverges we must either adopt its definition
+     explicitly and say so, or implement the specified policy ourselves.
+   - **Fair parameter selection.** `tolerance_factor` (and B2-tok's `d`, and the
+     service-time estimator) are free parameters. Whoever wrote the code, *we*
+     choose the values. Bias enters through tuning the treatment more carefully
+     than the baseline. The mitigation is a **documented tuning protocol applied
+     symmetrically** to B2-tok and to B3/B4 — same search budget, same selection
+     criterion, same seeds, decided and written down **before** the headline runs.
+     That protocol is M5/M8 work and is not yet written.
+
+   What survives of the original argument: if the result is negative, it is a
+   negative result about an implementation we did not author, which is a
+   modestly stronger position than one about a router we wrote ourselves. That is
+   a real but limited benefit, not a defence against tuning bias.
 3. **`canary` ships `data/processed_traces/mooncake_conversation_trace.csv`** —
    80 MB, 12 031 requests, with `block_hash_ids`, `block_size` and `session_id`.
    Mooncake is our **primary** trace (`PROJECT_SPEC.md` §7) and this is most of
@@ -123,7 +149,7 @@ LLMServingSim's missing seed flag is fixable, but it is one more thing to fix.
 
 | Experiment | Vidur `canary` | LLMServingSim |
 |---|---|---|
-| **E1** min cost @ fixed SLO | needs R4 + R7 + the search harness; `capacity_search.py` is a working template; runs are **in-process** at `measured` ~0.18 s/request with prefix caching | needs R7 from zero *and* an out-of-process driver (a container + subprocess per run), at `measured` ~0.97 s/request |
+| **E1** min cost @ fixed SLO | needs R4 + R7 + the search harness; `capacity_search.py` is a working template; runs are **in-process**, `measured` ~0.18 s/request on the configuration tested | needs R7 from zero *and* an out-of-process driver (a container + subprocess per run), `measured` ~0.97 s/request on the configuration tested. The two figures come from different workloads and are indicative, not a controlled comparison. |
 | **E2** cache-sharing threshold (φ) | prefix cache + Mooncake block hashes + `replica_prefix_cache_metrics` present | tiered cache present; needs the per-request hit columns exported |
 | **E3** heterogeneity | **blocked on R4** — the only place LLMServingSim is clearly ahead | **works today, verified by running a mixed RTX4090 + RTXPRO6000 fleet** |
 | **E4** preemption / H4 | new event class; per-replica KV cache object can simply be dropped, which *is* the H4 mechanism | crosses into the C++ topology |
@@ -195,17 +221,70 @@ visible:
 
 | # | Falsifier | Check by |
 |---|-----------|----------|
-| F1 | Heterogeneous replicas (R4) cannot be made to work on `canary` in ≤ 8 engineer-days — e.g. the per-`(model, device)` execution-time predictors turn out to be entangled beyond the 4 call sites found | **end of M4** |
-| F2 | The per-process predictor-load tax (`measured`: 57–115 s) cannot be amortised across an E1 sweep, making a fleet search of the required size infeasible on available hardware | **end of M4** |
+| F1 | The **bounded feasibility check defined in §5a** fails, or shows R4 cannot be closed in ≤ 8 engineer-days — e.g. the per-`(model, device)` execution-time predictors turn out to be entangled beyond the 4 call sites found | **end of M4** (the check, not the implementation) |
+| F2 | The per-process predictor-load tax (`measured`: 32–115 s) cannot be amortised across an E1 sweep, making a fleet search of the required size infeasible on available hardware | **end of M4** |
 | F3 | `canary`'s prefix cache proves not to be a faithful port of vLLM's block-pool semantics under unit test, invalidating RQ1/E2 | **end of M4** |
 | F4 | The shipped `mooncake_conversation_trace.csv` cannot be reproduced from the upstream Mooncake trace, so its prefix structure is unverifiable | **end of M2** |
 | F5 | The `canary` branch turns out to be so defective that fixing it exceeds the from-scratch estimate (17–26 d) — i.e. option C becomes cheaper *and* we would be replacing the calibrated timing model anyway | **end of M4** |
 | F6 | Mooncake at native lengths cannot be simulated: its p95 request is 40 568 tokens and the largest context any Vidur model config ships is 32 768. Whatever filtering or scaling we adopt changes the prefix-sharing structure RQ1 measures, so it must be a documented research decision — and if no defensible policy exists, RQ1's primary-trace evidence is compromised | **end of M2** |
 
-F1 is the most likely to fire. If it does, the fallback is **not** an immediate
-switch: it is to keep Vidur for E1/E2/E4/E5 and treat E3 as the experiment that
-may be reduced in scope, since `PROJECT_SPEC.md` already lists the third
-heterogeneous mix as cut-if-behind.
+F1 is the most likely to fire.
+
+**If F1 fires, the fallback is not an immediate change of base** — it is to keep
+Vidur for E1/E2/E4/E5 and re-open the question of E3's scope **with the user**.
+
+**A scope clarification that an earlier draft of this file got wrong.**
+`PROJECT_SPEC.md`'s cut-if-behind register lists "third heterogeneous mix" —
+that is *one additional fleet composition*, not heterogeneity itself. Dropping
+heterogeneity altogether would delete **RQ2** ("When does capability-aware
+routing outperform strong queue-aware routing on heterogeneous GPU fleets?")
+and **E3**, both of which are frozen MVP items in the M0 specification. Those
+are not the same decision and must not be conflated:
+
+| Change | Status |
+|---|---|
+| Drop the *third* heterogeneous fleet mix, keep two | already sanctioned by the frozen cut-if-behind register |
+| Reduce E3 to a single heterogeneous mix | **requires explicit user approval** |
+| Drop E3 / RQ2 entirely | **requires explicit user approval**, and amends the frozen `PROJECT_SPEC.md` |
+
+If F1 fires, the assistant's job is to present the measured effort, the options
+and a recommendation — not to quietly shrink the research question.
+
+---
+
+## 5a. The bounded R4 feasibility check (defines F1's trigger)
+
+F1 is checked at **end of M4**; the full R4 implementation stays at **M7**. These
+are different pieces of work and the check must not become the implementation by
+stealth. The check is a **time-boxed 1-day probe** (`estimate`) with three steps
+and a pass/fail rule, run on the vendored tree:
+
+1. **Confirm the coupling surface.** Re-grep the vendored tree for reads of
+   `cluster_config.replica_config`. The M1 spike found **4** non-analyzer sites
+   (`base_global_scheduler.py:40,46`, `replica_metrics_store.py:60,220`).
+   *Fail if* the count is materially larger on the vendored SHA than the spike
+   found.
+2. **Two predictors in one process.** Instantiate two `ExecutionTimePredictor`s
+   for two different `(model, device)` pairs inside a single interpreter and
+   confirm they coexist — no singleton, no shared module-level cache keyed
+   without the device, no cross-contamination of prediction tables. This is the
+   step most likely to surprise us, because it is the one the spike inferred
+   from source rather than executed. *Fail if* they cannot coexist without
+   restructuring the predictor layer.
+3. **Two-replica smoke test, minimal patch.** With a throwaway patch — not the
+   real implementation, not merged — build a 2-replica cluster whose replicas
+   have different `device` values and confirm a short run completes and the two
+   replicas draw different execution times. **Deliberately excluded from the
+   probe:** CLI/config plumbing, metrics-store changes, cost attribution,
+   capability-aware routing. Those are M7.
+
+**Pass rule:** all three steps succeed within the 1-day box → F1 does not fire,
+R4 is scheduled at M7 on the 3–5 d estimate.
+**Fail rule:** any step fails, or step 2 requires restructuring → F1 fires, and
+the E3-scope question goes to the user with measured evidence.
+
+The throwaway patch from step 3 is discarded, not carried forward; M7 starts
+from the vendored tree.
 
 ---
 

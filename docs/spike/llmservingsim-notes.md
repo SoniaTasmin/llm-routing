@@ -127,16 +127,27 @@ hundred runs at minimum. That is thousands of serial hours, and there is no
 in-process API to amortise anything across runs. Parallelism helps
 proportionally and nothing else does.
 
-For contrast, and comparing like with like — both with prefix caching enabled —
-Vidur `canary` is `measured` at **~0.18 s/request** (512 Mooncake requests,
-4 replicas, `vllm_v1` + prefix cache, 91 s of simulation). That is about
-**5.5× cheaper**, plus the option of running many cells inside one process.
+For contrast, Vidur `canary` is `measured` at **~0.18 s/request** (512 Mooncake
+requests, 4 replicas, `vllm_v1` + prefix cache, 91 s of simulation) — nominally
+about **5.5× lower**.
 
-An earlier draft of this file put the gap at ~60×, by comparing against Vidur
-`main` running the cheap Sarathi scheduler with no prefix cache at all. That was
-not a fair comparison and has been withdrawn. 5.5× is real and it compounds with
-the process model, but it is a contributing reason for the recommendation, not
-the decisive one.
+**That ratio is `indicative`, not a controlled comparison** (corrected
+2026-09-10; an earlier draft of this file called it "like with like", which it is
+not). Enabling prefix caching on both sides does not equalise the workloads: the
+two runs use different traces (512 real Mooncake requests vs 300 synthetic
+1 024-token prompts), different instance counts (4 vs 2), different schedulers
+and different cache topologies. Read it as *single-digit times*, not as a
+benchmark.
+
+An even earlier draft put the gap at ~60×, comparing against Vidur `main` with no
+prefix cache at all; withdrawn.
+
+What is **not** a matter of ratio, and is structural: Vidur runs in-process, so
+many E1 cells can share one interpreter, whereas each LLMServingSim run is a
+container plus a subprocess with per-batch disk I/O. That advantage holds
+regardless of the per-request figure, and it is the part of the throughput
+argument the recommendation actually leans on — as a contributing reason, not the
+decisive one.
 
 ---
 

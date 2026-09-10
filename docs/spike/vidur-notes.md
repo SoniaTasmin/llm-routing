@@ -155,21 +155,41 @@ That single run demonstrates R1, R2, R3 and R8 working together on our primary
 trace, with the per-request diagnostics RQ1 needs — which is what the spike had
 to establish.
 
-### Throughput, and a correction to my own first reading
+### Throughput — indicative only, and two corrections to my own readings
 
 | Configuration | Requests | Replicas | Simulation time | Per request |
 |---|---|---|---|---|
 | `main`, sarathi, synthetic, no cache | 2 048 | 8 | 32 s | **0.016 s** |
-| `canary`, `vllm_v1` + prefix caching, Mooncake | 512 | 4 | 91 s | **0.178 s** |
+| `canary`, `vllm_v1` + prefix caching, Mooncake ≤4 096 | 512 | 4 | 91 s | **0.178 s** |
+| *(LLMServingSim, 2 instances, shared CPU pool, synthetic 1 024-tok)* | *300* | *2* | *4 m 51 s* | *0.97 s* |
 
-I initially quoted the 0.016 s figure when comparing against LLMServingSim.
-That was not a fair comparison: it is `main` with the cheap Sarathi scheduler
-and no prefix cache, against LLMServingSim running vLLM-derived block-pool
-caching. The honest like-for-like number is the second row — **0.178 s per
-request** with prefix caching on — which is about **5.5×** cheaper than
-LLMServingSim's measured ~0.97 s, not the ~60× the first comparison implied.
-The workloads also differ, so even 5.5× should be read as an order-of-magnitude
-statement, not a benchmark.
+**Correction 1.** I first quoted the 0.016 s figure against LLMServingSim. That
+was unfair: `main` with the cheap Sarathi scheduler and no prefix cache, against
+LLMServingSim running vLLM-derived block-pool caching. Withdrawn.
+
+**Correction 2 (2026-09-10).** I then described the 0.178 s vs 0.97 s comparison
+as "like-for-like, both with prefix caching". **That was also wrong**, and it is
+the more insidious error because it sounds controlled. Turning prefix caching on
+in both simulators does **not** equalise the work they do. The two runs differ in
+almost every other respect:
+
+| | Vidur `canary` | LLMServingSim |
+|---|---|---|
+| Trace | 512 Mooncake requests, ≤4 096 tokens, real prefix structure | 300 synthetic requests, 1 024-token prompts, one shared 512-token prefix |
+| Replicas / instances | 4 | 2 |
+| Replica scheduler | `vllm_v1` | vLLM v0.19.0 port |
+| Cache configuration | per-replica GPU cache, no disk tier | per-instance NPU + shared node CPU pool |
+| Measured hit rate | 32.69 % | 49.67 % NPU + 0.17 % CPU |
+
+**The only defensible claim is `indicative`:** across the configurations we
+happened to run, Vidur's per-request simulation cost was **single-digit times
+lower** — nominally ~5.5×. It is not a benchmark and must not be quoted as one.
+
+A properly controlled comparison — same trace, same replica count, same cache
+settings on both simulators — was **not** performed. It is deliberately not being
+performed now: it would take a day of work to strengthen a *contributing*
+argument, and the decision rests on R2, R5 and R7, none of which is a throughput
+question. Recorded so no future reader mistakes the absence for an oversight.
 
 Each *process* additionally pays a fixed predictor-load tax of **~32–115 s**
 depending on how many operations the configuration touches. For an E1 sweep of
@@ -244,8 +264,13 @@ contains policies that are close to our B3:
 `tolerant_sticky_lop_uncached_global_scheduler.py` (sticky affinity **with a
 load-imbalance tolerance factor** — i.e. an overload guard), and
 `ranked_sticky_lop_uncached_global_scheduler.py`. We would be characterising
-*their* implementations, not ours. See `recommendation.md` §5 for why this is
-argued to be a strength, not a problem.
+*their* implementations, not ours.
+
+That reduces one risk — authoring a treatment we unconsciously shaped to win —
+but it does **not** remove tuning bias, and it does **not** establish that these
+policies *are* our B3 as `PROJECT_SPEC.md` §5 specifies it. Both equivalence and
+a symmetric parameter-tuning protocol remain to be established at M5/M6/M8. See
+`recommendation.md` §2 "Research validity", point 2, as corrected 2026-09-10.
 
 ### R3 — cross-replica prefix-cache state · `main` FAIL · `canary` PARTIAL
 

@@ -243,14 +243,31 @@ request runs, so it is a marginal rate rather than start-up overhead. Vidur
 
 I first wrote that up as a **~60× gap**. It is not. That number compared
 LLMServingSim (vLLM-derived block-pool caching) against Vidur `main` running the
-cheap Sarathi scheduler with **no prefix cache** — different work. The
-like-for-like figure, once Vidur `canary` ran with prefix caching on, is
-**~0.18 s/request**, i.e. about **5.5×**. Corrected in all four spike documents.
+cheap Sarathi scheduler with **no prefix cache** — different work. Once Vidur
+`canary` ran with prefix caching on, the figure was **~0.18 s/request**, i.e.
+about **5.5×**.
+
 Recording the error rather than the corrected number alone: I reached for the
 fastest Vidur measurement I had instead of the comparable one, and it flattered
-the option I was already leaning towards. `estimate`: a 20 000-request
-LLMServingSim run is ~5.5 h, and E1 needs hundreds of runs — so the concern
-survives, at a quarter of the drama.
+the option I was already leaning towards.
+
+**Second correction, 2026-09-10, from user review.** I then described 5.5× as
+"like-for-like, both with prefix caching". That is also wrong, and worse, because
+it *sounds* controlled. Enabling prefix caching in both simulators does not make
+their workloads equivalent — the two runs differ in trace (512 real Mooncake
+requests vs 300 synthetic 1 024-token prompts), replica count (4 vs 2), replica
+scheduler, and cache topology. The only defensible description is **indicative
+across the configurations tested**: single-digit times lower. Corrected in all
+four spike documents plus D-007.
+
+The lesson generalises past this number: *matching one variable between two
+systems does not make a comparison controlled.* I matched the variable I had been
+thinking about and called the rest equal.
+
+`estimate`: a 20 000-request LLMServingSim run is ~5.5 h, and E1 needs hundreds
+of runs — so the underlying concern survives, but as an order-of-magnitude
+observation, and it is a contributing reason for the decision rather than a
+load-bearing one.
 
 That same probe also confirmed **R3 at runtime rather than from documentation**:
 NPU prefix hit **49.67 %**, and a non-zero **cross-instance CPU-pool hit of
@@ -339,8 +356,9 @@ exists to avoid. **Re-deriving it from upstream is falsifier F4** and is M2 work
 ### Decision
 
 **Extend Vidur, branch `canary`, pinned at `25e0082`.** Recorded as **D-006**,
-superseding D-005. Rationale, costs, rejected alternatives and five dated
-falsifiers: `docs/spike/recommendation.md`.
+superseding D-005. Rationale, costs, rejected alternatives and **six** dated
+falsifiers: `docs/spike/recommendation.md`. (Said "five" until 2026-09-10; F6
+was added at the end of the spike and this sentence was not updated with it.)
 
 The decision was **not** made on requirement counts — LLMServingSim scores more
 PASSes (4 vs 3). It was made on a weighting stated explicitly in
@@ -363,3 +381,76 @@ this entry is an install or run *timing*, labelled `measured`.
 
 **Next.** Stopped per the milestone protocol; awaiting explicit approval to
 close M1 and begin M2.
+
+---
+
+## 2026-09-10 — M1 closed after user review; six corrections applied
+
+**Week 2, day 1.** The user reviewed the completed M1 report before approving it
+and returned six corrections. Recording them here in full, because five of the
+six are cases where **the review caught something the assistant did not**, and
+that is the most useful kind of entry this notebook can hold.
+
+### What the review caught
+
+1. **Four documentation inconsistencies** I had listed myself but not fixed
+   (stale "remote synced" text, undercounted run totals, "five falsifiers" where
+   there are six, a 57 s vs 32 s predictor-tax mismatch). Fixed.
+
+2. **The throughput ratio was not a controlled comparison.** I had written that
+   ~5.5× was "like-for-like, both with prefix caching". The user's objection:
+   *enabling prefix caching in both does not make their workloads equivalent.*
+   Correct. The two runs differ in trace, replica count, scheduler and cache
+   topology. This is the second time I got this number's framing wrong — first
+   ~60× from an unfair baseline, then a false claim of control. The generalisable
+   error: **matching the one variable I happened to be thinking about, then
+   treating the rest as equal.** Now described as `indicative`.
+
+3. **Effort arithmetic.** The user computed 13–22 d from my own rows against my
+   stated 13.5–22.5 d. The gap was a stale 0.5 d on R8. Re-checking run 4b's
+   output settled it: `canary` already emits `replica`, `request_arrived_at` and
+   `request_num_prefill_tokens_cached`, so R8 costs **0 d** on the branch we
+   chose. Total corrected to **13–22 d**, with policy work and F6 explicitly
+   listed as additional.
+
+4. **F1 could not be checked when I said it could.** I dated F1 "end of M4" while
+   assigning R4 to M7 and never said how. Now resolved by defining a bounded
+   1-day probe (`recommendation.md` §5a) that is deliberately *not* the
+   implementation — three steps, a pass/fail rule, and a throwaway patch that is
+   discarded rather than merged.
+
+5. **The tuning-bias claim was overstated.** I had written that using upstream's
+   cache-aware router means "we cannot be accused of tuning the treatment to
+   win". That is wrong twice over: it assumes upstream's policy *is* our B3
+   (unverified), and it ignores that **we still choose the parameter values**.
+   Starting from upstream code reduces authorship bias; it does nothing about
+   tuning bias. The fix names two pieces of work that were previously invisible:
+   a B3-equivalence check (M6) and a symmetric tuning protocol (M5/M8).
+
+6. **I conflated two different scope reductions.** "Drop the third heterogeneous
+   mix" is sanctioned by the frozen cut-if-behind register. "Drop heterogeneity"
+   deletes RQ2 and E3. I had written the F1 fallback as though the register
+   covered both. It does not, and any change to RQ2/E3 needs user approval.
+
+### How the corrections were recorded
+
+D-006 is an **accepted** decision, so its text was not edited. A pointer line was
+added to its header and the substance went into a new dated entry, **D-007 —
+Clarifications and partial corrections to D-006** (C1–C5). The supporting
+evidence files under `docs/spike/` *were* edited directly — they are evidence,
+not decisions — with each correction dated inline so a reader can see what
+changed and when.
+
+### The pattern worth carrying
+
+Four of the six corrections are the same failure mode: **a claim stated more
+strongly than the evidence supported, in the direction that favoured the
+conclusion I had already reached.** The 60× ratio, the "like-for-like" framing,
+the tuning-bias claim, and the scope conflation all flattered the recommendation.
+None of them changed the decision — which is itself worth noting, because it
+means the overclaiming was unnecessary as well as wrong.
+
+No new benchmarks were run to strengthen the recommendation; the user explicitly
+ruled that out, and it would have been the wrong instinct anyway.
+
+**M1 is closed.** M2 begins.

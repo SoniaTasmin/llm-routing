@@ -156,6 +156,10 @@ decision entry (D-006) recording the outcome.
 
 ## D-006 — Simulator base: extend Vidur, on the `canary` branch, vendored at a pinned commit
 **Date:** 2026-09-02 · **Status:** ACCEPTED (Milestone 1 output) · **Supersedes:** D-005
+**Amended:** **CLARIFIED AND PARTIALLY CORRECTED BY D-007 (2026-09-10).** The text
+below is preserved exactly as accepted. Four of its claims are corrected in
+D-007; read them together. The *decision* — extend Vidur `canary` at `25e0082` —
+is unchanged.
 
 **Context.** D-005 recorded that the simulator base was deliberately undecided
 and that M1 would be a 3-day spike scoring **Vidur** and **LLMServingSim**
@@ -313,3 +317,124 @@ If F1 fires, the response is **not** an immediate switch: keep Vidur for
 E1/E2/E4/E5 and reduce E3's scope, since `PROJECT_SPEC.md` already lists the
 third heterogeneous mix as cut-if-behind. Any reversal is recorded as a new
 superseding entry, never by editing this one.
+
+
+---
+
+## D-007 — Clarifications and partial corrections to D-006
+**Date:** 2026-09-10 · **Status:** ACCEPTED · **Clarifies:** D-006 (does **not** supersede it)
+
+**Context.** The user reviewed the completed M1 report before approving the
+milestone and identified four claims in D-006 and its supporting documents that
+were overstated, under-specified, or arithmetically inconsistent. D-006's
+*decision* survives review unchanged. Its *supporting argument* needed four
+repairs, recorded here rather than by editing an accepted entry.
+
+**Decision.** D-006 stands: extend Vidur, branch `canary`, vendored and pinned at
+`25e0082dbbfb206fb0477c3ebbededa7ead78949`. The following four clarifications
+attach to it and take precedence over the corresponding passages in D-006 and in
+`docs/spike/*`.
+
+### C1 — The throughput ratio is indicative, not a controlled comparison
+
+D-006 said the ~5.5× per-request gap was "like for like, both with prefix
+caching". **That is withdrawn.** Enabling prefix caching on both simulators does
+not make their workloads equivalent. The two runs differ in trace (512 real
+Mooncake requests ≤4 096 tokens vs 300 synthetic 1 024-token prompts), replica
+count (4 vs 2), replica scheduler, cache topology and measured hit rate (32.69 %
+vs 49.67 % NPU + 0.17 % CPU).
+
+Correct statement: across the configurations actually run, Vidur's per-request
+simulation cost was **indicatively single-digit times lower** — nominally ~5.5×.
+A controlled comparison was **not** performed and will **not** be performed: it
+would cost a day to strengthen a contributing argument, and the decision rests on
+R2, R5 and R7, none of which is a throughput question. What *is* structural, and
+independent of the ratio, is that Vidur runs in-process (many E1 cells per
+interpreter) while each LLMServingSim run is a container plus a subprocess.
+
+### C2 — Effort total corrected to 13–22 engineer-days
+
+D-006's supporting matrix totalled **13.5–22.5 d**. Re-derived from the rows:
+3–5 (R4) + 3–5 (R5) + 1–2 (R6) + 4–7 (R7) + 0 (R8) + 2–3 (R3) = **13–22 d**.
+
+The discrepancy was a stale 0.5 d on the **R8** row for "add `replica_id` and
+`arrived_at` columns". Re-checking run 4b's output settles it: `canary` already
+emits `replica` (col 25), `request_arrived_at` (col 24) and
+`request_num_prefill_tokens_cached` (col 20). R8 costs **0 d** on the branch we
+chose; the 0.5 d applied to `main`, which we are not using.
+
+**The 13–22 d figure covers only closing the R1–R8 gaps in the simulator base.**
+Explicitly *additional and not included*: implementing policies B1/B2-req/B2-tok/
+B3/B4 (M5–M8); the symmetric tuning protocol (C3); resolving Mooncake's
+context-length constraint, falsifier F6 (M2/M4, **not yet estimated**); the
+statistical analysis harness (M5); the E8 fidelity comparison (M11).
+
+### C3 — An upstream router reduces some implementation bias; it does not remove tuning bias
+
+D-006 rationale item 5 said that building the treatment on upstream's own
+cache-aware router means "we cannot be accused of tuning the treatment to win".
+**Overstated; withdrawn.**
+
+What holds: starting from `tolerant_sticky_lop_uncached` and its siblings reduces
+one specific risk — that we author a treatment whose code we shaped, consciously
+or not, toward the outcome we expect. A negative result about an implementation
+we did not write is a modestly stronger position than one about a router we did.
+
+What does **not** hold, and is now explicit project work:
+
+1. **Equivalence is unverified.** `PROJECT_SPEC.md` §5 specifies B3 as
+   "prefix-affinity routing with a guard that sheds affinity under load".
+   Whether `tolerant_sticky_lop_uncached` *is* that policy is an open question to
+   be answered by reading and testing it against the spec. If it diverges we
+   either adopt its definition explicitly and say so, or implement the specified
+   policy ourselves. **Owner: M6.**
+2. **Parameter selection is still ours.** `tolerance_factor`, B2-tok's `d`, and
+   the service-time estimator are free parameters. Whoever wrote the code, *we*
+   choose the values, and bias enters through tuning the treatment more carefully
+   than the baseline. Mitigation: a **documented tuning protocol applied
+   symmetrically** to B2-tok and to B3/B4 — same search budget, same selection
+   criterion, same seeds — written down **before** the headline runs.
+   **Owner: M5 (protocol), M8 (application).**
+
+### C4 — F1 is checked by a bounded probe at M4; the R4 implementation stays at M7
+
+D-006 dated F1 "end of M4" while assigning R4 to M7, without saying how a
+requirement implemented in week 7 could be falsified in week 4. Resolved by
+defining the check separately from the implementation, in
+`docs/spike/recommendation.md` §5a: a **time-boxed 1-day probe** that (i)
+re-greps the coupling surface against the 4 sites the spike found, (ii)
+instantiates two `ExecutionTimePredictor`s for different `(model, device)` pairs
+in one interpreter and confirms they coexist — the step the spike *inferred* from
+source rather than executed, and the one most likely to surprise us — and (iii)
+runs a 2-replica differing-device smoke test behind a throwaway patch that is
+discarded, not merged. CLI plumbing, metrics, cost attribution and
+capability-aware routing are **excluded** and remain M7.
+
+### C5 — Dropping heterogeneity is not the same decision as dropping the third fleet mix
+
+D-006's F1 fallback said E3 "may be reduced in scope, since `PROJECT_SPEC.md`
+already lists the third heterogeneous mix as cut-if-behind". **That conflated two
+different decisions and is corrected.**
+
+The frozen cut-if-behind register sanctions dropping *one additional fleet
+composition*. It does not sanction dropping heterogeneity, which would delete
+**RQ2** and **E3** — both frozen MVP items.
+
+| Change | Status |
+|---|---|
+| Drop the *third* heterogeneous fleet mix, keep two | already sanctioned by the frozen register |
+| Reduce E3 to a single heterogeneous mix | **requires explicit user approval** |
+| Drop E3 / RQ2 entirely | **requires explicit user approval**; amends the frozen `PROJECT_SPEC.md` |
+
+If F1 fires, the assistant presents measured effort, options and a
+recommendation. It does not shrink the research question on its own authority.
+
+**Consequences.** No change to the simulator base, the vendoring plan, or the
+milestone schedule. Two pieces of previously-unnamed work are now named and
+owned: the B3-equivalence check (M6) and the symmetric tuning protocol (M5/M8).
+The R4 feasibility probe (M4) is specified rather than implied.
+
+**Would falsify this.** C1–C5 are corrections to reasoning, not empirical claims,
+so they are not independently falsifiable. The six falsifiers in
+`docs/spike/recommendation.md` §5 continue to govern D-006, with F1's trigger now
+defined by §5a.
