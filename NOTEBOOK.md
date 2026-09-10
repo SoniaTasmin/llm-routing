@@ -583,3 +583,118 @@ No simulator modifications. No routing policies. No experimental sweeps. No vLLM
 calibration. No Kubernetes. The vendored tree is untouched and checksum-verified.
 Validation was limited to what establishes loader and generator correctness: 31
 tests.
+
+---
+
+## 2026-09-10 — F6 rev 2: a user audit finds six errors in my own analysis
+
+The user reviewed the F6 recommendation and returned six objections. **All six
+were correct.** The recommendation changed as a result. Recording each, because
+the pattern across them is more instructive than any single one.
+
+### 1. I proposed a hypothetical model without noticing
+
+Released Meta-Llama-3-8B has an **8 192**-token context. "Raise `max_model_len`
+to 131 072" would simulate a model that does not exist — precisely the kind of
+unlabelled fabrication `PROJECT_SPEC.md` §11 exists to prevent, and I walked into
+it while writing a document about being careful.
+
+There *is* a legitimate model behind the same numbers: **Llama-3.1-8B** is real,
+131 072 context, and architecturally identical — 32 layers, 4 096 hidden, 32 q
+heads, 8 kv heads, 14 336 intermediate, rope_theta 500 000. The only difference
+is RoPE scaling, which affects output quality, not FLOPs or KV bytes. So the
+corrected proposal is a **declared substitution**, not a raised constant.
+
+### 2. I quoted a column maximum and called it coverage
+
+Rev 1 said the profile reaches 262 112 tokens. Tracing `kv_cache_size` through
+`AttentionInput.is_valid` and `attention_wrapper.py` establishes it is
+**per-sequence processed context** (not aggregate batch tokens — that is a
+separate quantity, `batch_size * (kv + chunk)`, used only to bound the sweep).
+
+But the joint coverage is the thing that mattered, and it is split by phase:
+
+| Phase | batch | chunk | kv | joint |
+|---|---|---|---|---|
+| prefill | 1 | ≤4 096 / 8 192 | ≤262 112 | chunk+kv reaches 262 144 |
+| **decode** | 1…512 complete | 0 | **≤65 536** | dense, 644 kv values per batch size |
+
+**The binding ceiling is 65 536, set by decode.** My 262 112 was prefill-only. I
+took a max over a column that mixes two phases with different coverage.
+
+### 3. The extrapolation problem I had not considered
+
+Vidur's *prediction* grid runs to `prediction_max_tokens_per_request = 256*1024`
+by default, so it will emit predictions past 65 536 without complaint. But the
+decode *training data* stops there, and a random forest cannot extrapolate — it
+flat-lines at the nearest leaf. Decode attention cost grows with context, so
+those predictions would systematically **under-estimate** the longest requests,
+which are the expensive ones. 2.14 % of Mooncake sits in that region.
+
+### 4. Option C's headline number was my own artifact
+
+I scaled token counts but kept `block_size = 512` and truncated each hash chain.
+That deletes unique tail blocks while keeping shared heads — the ratio inflates
+mechanically. Scaling **consistently** (tokens *and* block size), sharing is
+**exactly invariant: 38.19 %, +0.00 pp at every factor.** My reported +38.13 pp
+was entirely an invalid transformation.
+
+C is still rejected — but for the right reason now (§5 below), not the fake one.
+
+### 5. "Long requests share the most" — backwards
+
+I asserted this as the mechanism. Measured by length quintile, per-request reuse:
+**Q1 shortest 81.84 %**, then 44.41, 37.93, 37.21, 38.33. Short requests share
+*most*. The real mechanism is **head/tail**: reuse concentrates in prompt heads
+(every request's first hash id is the same shared block), and a short request is
+almost all head. Both A and B inflate the ratio by preserving heads and
+discarding tails — the same structural reason, not the one I gave.
+
+### 6. Ranking by Δ-ratio was the wrong instrument entirely
+
+This is the deepest of the six, and the user reached it from a smaller
+observation (that B is not uniformly better than A — true, the ordering flips at
+8 192 and 16 384).
+
+Adding absolute counts shows why the ratio misleads: **A @8 192 has the smaller
+ratio change (+4.16 pp vs +6.36) while discarding 86.5 % of all prefix blocks**
+against B's 56.8 %. A ratio can look stable precisely because its numerator and
+denominator fell together. I had built a whole recommendation on a statistic that
+hides the thing it is supposed to measure.
+
+### And the distinction underneath all of it
+
+"0 pp distortion" establishes only that the trace was unchanged. It says nothing
+about whether the simulator can *price* that trace. Consistent scaling preserves
+sharing exactly and destroys timing validity completely. Preservation and
+validity are independent axes, and rev 1 collapsed them.
+
+### Corrected recommendation
+
+**D′ — Llama-3.1-8B-class model (declared substitution, shipped profile) +
+truncate at 65 536.** Costs +0.44 pp and 4.2 % of blocks; keeps 96.9 % of all
+reuse; puts **every** request inside profiled data for both phases; needs no new
+GPU profiling. Native remains better *if* decode profiling above 65 536 is added
+later, which is M3 GPU work — and truncation is reversible, so choosing it now
+forecloses nothing.
+
+### On the smoke-test exception
+
+The user authorised one with limits. **I did not use it**, because it is not
+usable within those limits: any run on a new `(model, device)` pair must first fit
+the predictor (`estimate` 11–14 h from a 2.45× larger training set), which is the
+full fit that was excluded. There is no cached artefact and no partial-fit mode
+that answers anything. I ran Vidur's `MemoryPlanner` instead — seconds, and it
+produced the KV feasibility numbers (TP=1 holds **3** maximum-length sequences).
+Saying "the authorised test would not answer the question" is more useful than
+burning the allowance to look thorough.
+
+### The pattern
+
+Five of the six errors share a shape: **I reached for the summary statistic that
+was easiest to compute, then reasoned about the system as though the statistic
+were the system.** A column max stood in for joint coverage; a ratio stood in for
+structure; a scaling transformation stood in for a scaled workload. The M1 review
+found the same shape in the throughput ratio. That is now twice, and it is worth
+naming as a standing failure mode rather than treating each instance as
+independent.

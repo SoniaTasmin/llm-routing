@@ -72,32 +72,44 @@ to RQ2/E3 scope. The vendored tree is untouched and checksum-verified.
 
 ## Open decision awaiting the user
 
-**F6 — Mooncake's context length.** Full analysis and a recommendation:
-`docs/workload-mooncake-context-length-f6.md`.
+**F6 — Mooncake's context length.** Full corrected analysis:
+`docs/workload-mooncake-context-length-f6.md` (**rev 2**, after a user audit
+found six errors in rev 1 — all six were real; see `NOTEBOOK.md`).
 
-Our re-derived trace has median 7 255 tokens, p95 40 056, max 126 527. Every way
-of making it fit distorts the prefix sharing RQ1 measures — `measured` against a
-38.19 % baseline:
+**Corrected recommendation: D′ — declare a Llama-3.1-8B-class model (the shipped
+`Meta-Llama-3-8B` profile is architecturally identical) and truncate at 65 536
+total tokens.** Costs +0.44 pp of sharing ratio, keeps 95.8 % of prefix blocks
+and 96.9 % of all reuse, and puts **every** request inside profiled data for both
+prefill and decode. No new GPU profiling required.
 
-| Option | Distortion | Retention |
-|---|---|---|
-| **D — Llama-3-8B at native lengths (recommended)** | **0 pp** | 100 % |
-| B — truncate to 32 768 | +1.05 pp | 100 % |
-| A — drop >32 768 | +1.40 pp | 93 % |
-| B — truncate to 4 096 | +12.94 pp | 100 % |
-| A — drop >4 096 | +20.22 pp | 32 % |
-| C — scale ×0.0625 | +38.13 pp | 100 % |
+Key corrections from rev 1:
 
-**Correcting an M1 claim:** M1 said no shipped model config has a large enough
-context. That was true of declared `max_model_len` values and **wrong about the
-profiling data**. `Meta-Llama-3-8B` and `-70B` on a100/h100 are profiled to
-`kv_cache_size = 262 112` tokens — past Mooncake's maximum. Every other model
-stops at 4 032, and M1 used `Llama-2-7b-hf`, one of those.
+- The profiled ceiling is **65 536** (per-sequence, set by **decode**), not the
+  262 112 rev 1 quoted — that figure is prefill-only. `kv_cache_size` is
+  per-sequence processed context, established by tracing `AttentionInput.is_valid`
+  and `attention_wrapper.py`.
+- Rev 1's "raise `max_model_len` on Llama-3-8B" would have simulated a
+  **hypothetical** model — released Llama-3-8B is 8 192 context.
+- Option C's reported +38 pp was **my own invalid transformation**. Scaled
+  consistently, sharing is exactly invariant (+0.00 pp).
+- **"Long requests share most" is false** — shortest quintile reuses 81.84 %,
+  the rest are flat ~37–44 %. The mechanism is head/tail, not length.
+- **Ranking options by Δ-ratio is the wrong instrument**: A @8 192 has a smaller
+  ratio change than B but discards 86.5 % of prefix blocks against B's 56.8 %.
+- "0 pp" establishes only that the trace was unchanged; it says nothing about
+  whether the timing model can price it.
 
-Option D's cost is an unmeasured increase in Vidur's one-time predictor-fit time
-(falsifier **F2**), which must be measured at M4 before D is relied on.
+Measured KV feasibility (Vidur's own `MemoryPlanner`, fp16, 80 GB): TP=1 holds
+**3** concurrent maximum-length sequences (7 at 65 536, 59 at 8 192); TP=2 → 8;
+TP=4 → 17.
 
-**No option adopted. Loaders apply no filtering or scaling by default.**
+Open uncertainty: predictor fit cost (`estimate` 11–14 h, unverified, F2);
+random-forest flat-lining beyond training range (unverified, M4); whether the
+Llama-3-8B profile represents real Llama-3.1-8B at long context (`assumption`,
+M11/E8); no end-to-end long-context run performed (M4 gate).
+
+**No option adopted. Native Mooncake unchanged. Loaders apply no filtering or
+scaling by default.**
 
 ---
 
