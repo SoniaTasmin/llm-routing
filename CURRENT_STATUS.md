@@ -99,7 +99,7 @@ manage it.
 
 | Item | Status |
 |------|--------|
-| GitHub remote | **In sync as of 2026-09-10.** M1 (2 commits) and M2 (2 commits) pushed by the user; `git ls-remote origin refs/heads/main` returns `183fff9289d5fcf7965c40b66284bd88d676a5e3`, equal to local `HEAD`. The assistant cannot push from this machine — no credential helper, no SSH key, `gh` present but not authenticated. Pushes are manual until that changes. |
+| GitHub remote | **Pushes are manual.** The assistant cannot push from this machine — no credential helper, no SSH key, `gh` installed but not authenticated. It commits; the user pushes. **This line deliberately names no SHA:** it was pinned to one twice and went stale both times, because commits continue after a push. To check sync at any moment, compare `git rev-parse HEAD` against `git ls-remote origin refs/heads/main`; `git log --oneline origin/main..HEAD` lists what is outstanding. |
 | Git identity | repo-local: Sonia Tasmin / stasmin10@gmail.com, so the office GitLab identity is never used |
 | `.spike/` working area | git-ignored; holds both M1 candidate clones + venvs + the ASTRA-Sim build. Recreate from `REPRODUCE.md` §3a; safe to delete |
 | Mooncake trace | **re-derived** from upstream @ `eeaca79`; F4 retired |
