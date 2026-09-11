@@ -92,8 +92,8 @@ with time.
 
 | | Item | Cost | Effect |
 |---|---|---|---|
-| 1 | Adopt the **G4** 512→16 expansion in the workload build | free | closes the mapping half of G4 |
-| 2 | **Run A** — smallest end-to-end run on M1's surviving cache | free, ~2 min | proves the integration, or falsifies it cheaply |
+| 1 | Adopt the **G4a/G4b** 512→16 expansion | free | closes the *mapping* sub-gates only; **G4c system-level bias stays open** |
+| 2 | **Run A** — basic integration check on M1's surviving cache | free, ~2 min | can falsify the integration; establishes **nothing** about Llama-3.1-class or 65k feasibility |
 | 3 | **G2 probe** — random-forest behaviour outside its training range | free, ~2 min | answers it with **no fit at all** |
 
 **Not requested:** the Run B predictor fit, any GPU rental, any M3 profiling.

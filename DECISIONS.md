@@ -532,7 +532,7 @@ blocks and **96.92 %** of reused blocks retained, realised sharing 38.19 % →
 | **G1 feasibility** | M4 | Does an end-to-end long-context run complete, at what predictor-fit cost and peak memory? **No defensible cost estimate exists** — see below. |
 | **G2 predictor behaviour** | M4 | Does Vidur's random forest flat-line outside its training range as assumed? |
 | **G3 fidelity** | M11 / E8 | Does the Meta-Llama-3-8B profile represent real Llama-3.1-8B at long context, or is additional profiling required? |
-| **G4 block-size mapping** | M4 | Our workload hashes are **512-token**; the simulator's KV block size is **forced to 16** by the profiling data (`_load_attention_df` filters on `block_size`, and only 16 is present). Handing 512-granularity ids to a 16-token cache under-counts the cached region ~32×. Intended mapping — deterministic 1→32 expansion for **whole** 512-blocks only, leaving sub-512 tails unhashed — is specified in `docs/workload-mooncake-context-length-f6.md` §G4 and must be implemented and validated at M4. It is deliberately **conservative** (under-counts sharing) and must never be extended to invent sharing in the unhashed tails. |
+| **G4 block-size mapping** | M4 | Split into three sub-gates 2026-09-11. **G4a** mapping specified and implemented without inventing prefix information — **DONE** (`workload.transforms.expand_block_hashes`, `child(h,j) = h*32 + j`; sub-512 tails get unique never-matching ids). **G4b** workload-level sharing bias quantified — **DONE**, −0.88 pp on D′ (2.27 % of blocks are unknown-sharing tails). **G4c** system-level consequence — change in simulated cache-hit rate, p95 TTFT and **routing decisions** — **OPEN, UNMEASURED**. G4b is computed under infinite-cache assumptions and does **not** bound G4c: the simulator runs a finite evicting pool, and B3/B4 route on `get_cached_prefill_length`, whose resolution changes 32× under the expansion, so the router can make *different* decisions. G4 is **not resolved**. |
 
 **On the predictor fit cost.** An earlier estimate of 11–14 h has been
 **withdrawn**. It extrapolated from whole-device row totals, but
@@ -551,7 +551,13 @@ editing this one.
 ---
 
 ## D-009 — Sequencing amendment: return the fidelity work to M11; defer paid GPU execution
-**Date:** 2026-09-11 · **Status:** ACCEPTED · **Amends:** the M3 acceptance criteria (not `PROJECT_SPEC.md`'s frozen plan)
+**Date:** 2026-09-11 · **Status:** **PROPOSED — AWAITING USER APPROVAL** · **Proposes to amend:** the M3 acceptance criteria (not `PROJECT_SPEC.md`'s frozen plan)
+
+> **Status correction, 2026-09-11.** This entry was first written with
+> `Status: ACCEPTED`. That was wrong: the user asked me to *propose* a
+> sequencing amendment for approval, and I marked my own proposal accepted.
+> Only part 3 below — that no paid GPU execution is authorised — is the user's
+> decision. Parts 1, 2 and 4 are proposals awaiting a ruling.
 
 **Context.** Two things need reconciling, and one of them is a mistake of mine.
 
@@ -581,20 +587,20 @@ real weights can answer it.
 **2. The user has declined paid GPU execution for now** (option 4), with the
 explicit condition that deferral must not harden any provisional decision.
 
-**Decision.**
+**Proposed (1, 2, 4) and decided by the user (3).**
 
-1. **Move the real-vLLM replay and the G3 verdict from M3 to M11**, where the
-   frozen plan already put the fidelity work. M3's acceptance criteria are
+1. **PROPOSED — move the real-vLLM replay and the G3 verdict from M3 to M11**,
+   where the frozen plan already put the fidelity work. M3's acceptance criteria are
    amended to cover parameterisation only:
    - a costed calibration plan (**met**);
    - Vidur's profiler run on the chosen `(model, device, TP)` (**GPU-blocked**);
    - reproducibility from `REPRODUCE.md` (**partially met**, open pending
      recorded environment versions).
-2. **M3 stays `PREPARATION IN PROGRESS` — not "done", not "cut".** Its remaining
+2. **PROPOSED — M3 stays `PREPARATION IN PROGRESS` — not "done", not "cut".** Its remaining
    criteria are blocked on a budget decision the user has deferred, not on work.
-3. **No paid GPU execution is authorised.** Nothing may be rented or charged
+3. **DECIDED BY THE USER 2026-09-11 — no paid GPU execution is authorised.** Nothing may be rented or charged
    without an explicit, separately approved budget.
-4. **D-008 stays PROVISIONAL and all four of its gates stay OPEN.** Deferring M3
+4. **PROPOSED (and entailed by 3) — D-008 stays PROVISIONAL and all four of its gates stay OPEN.** Deferring M3
    changes none of that.
 
 **Rationale.** `PROJECT_SPEC.md` §12's twelve-week plan is frozen and this does

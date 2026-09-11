@@ -10,7 +10,7 @@ profiles** and the **D′ workload** — which turns out to be most of the gates
 
 ---
 
-## 1. Gate G4 — the 512→16 mapping, resolved
+## 1. Gate G4 — mapping specified and measured at the workload level; **NOT resolved**
 
 **The problem.** Mooncake hashes prefixes at **512 tokens**. Vidur's KV block
 size is **16**, and it is forced: `_load_attention_df` filters training rows on
@@ -39,20 +39,54 @@ map is deterministic in `(h_i, j)` alone, so agreement transfers and
 never-matching** ids from a disjoint range, so they can never count as reuse.
 The mapping therefore **under-counts** sharing; it does not fabricate it.
 
-**Measured cost of that conservatism** (CPU, today, on the committed workloads):
+**Measured workload-level cost of that conservatism** (CPU, today):
 
-| Workload | Blocks after expansion | Tail blocks (unknown) | Sharing @512 | Sharing @16 | Bias |
+| Workload | Blocks after expansion | Tail blocks (unknown) | Sharing @512 | Sharing @16 | Δ |
 |---|---|---|---|---|---|
 | native | 9 044 013 | 196 301 (**2.17 %**) | 38.19 % | 37.36 % | **−0.83 pp** |
 | **D′ (trunc 65 536)** | 8 674 135 | 196 727 (**2.27 %**) | 38.63 % | **37.76 %** | **−0.88 pp** |
 
-So G4's resolution costs a **known, bounded −0.88 pp** on the workload we intend
-to run, in the conservative direction. That is now a measured quantity rather
-than a hazard.
+### Why this does **not** resolve G4
 
-**Still to do at M4:** adopt the expansion in the workload build, confirm the
-simulator's own reported cache-hit rate is consistent with 37.76 % under an
-infinite-cache configuration, and record the adoption.
+An earlier version of this section was headed "resolved". **It is not, and the
+−0.88 pp does not bound what matters.** It is a property of the *workload*
+computed under `measure_realised_sharing`'s stated assumptions: arrival order,
+**infinite cache, no eviction**. Three things stand between it and any claim
+about results:
+
+1. **Cache-hit rate ≠ sharing ratio.** The simulator runs a *finite* block pool
+   with LRU eviction. Changing block granularity from 512 to 16 changes eviction
+   behaviour, fragmentation and the admission path independently of which ids
+   are shared. The realised-sharing ceiling moves by −0.88 pp; the achieved hit
+   rate could move by more, less, or the other way.
+2. **Latency ≠ cache-hit rate.** A hit-rate change propagates through prefill
+   work, batch composition and queueing before it reaches TTFT, and
+   `PROJECT_SPEC.md` §11's thresholds are stated in p95 TTFT and cost, not in
+   sharing.
+3. **Routing bias is a separate question entirely.** B3 and B4 route on
+   `get_cached_prefill_length`, which returns *tokens* derived from the block
+   walk. At 16-token granularity that estimate has 32× finer resolution, so the
+   router can make **different decisions** — not merely slightly-worse ones.
+   A difference in routing decisions is a difference in the experiment's
+   independent variable, and its effect on the headline comparison against
+   B2-tok is unmeasured and not obviously small.
+
+**G4 therefore splits into three sub-gates:**
+
+| | Sub-gate | Status |
+|---|---|---|
+| **G4a** | Mapping specified and implemented **without inventing prefix information** | **DONE** — tested, §1 above |
+| **G4b** | Workload-level sharing bias quantified | **DONE** — −0.88 pp on D′ |
+| **G4c** | **System-level** consequence: change in simulated cache-hit rate, p95 TTFT, and **routing decisions** | **OPEN — unmeasured** |
+
+G4c is the one that matters for RQ1 and it cannot be settled by arithmetic on
+the workload. It needs paired simulator runs — the same workload at 512- and
+16-token hashes through the same policy — comparing hit rate, TTFT and the
+per-request `replica` assignment. Run A can do that at 4 096-token context on the
+cached predictor; whether the answer transfers to 65 536 is itself open.
+
+**Still to do at M4:** adopt the expansion, then run the paired comparison that
+G4c requires.
 
 ---
 
@@ -70,14 +104,25 @@ So the smallest useful run costs **nothing** and needs **no fit**:
 > `Llama-2-7b-hf`, TP=1, 4 replicas, `vllm_v1` scheduler, prefix caching on,
 > a cache-aware global scheduler.
 
-Run A exercises **everything except long context**: the unified schema reaching
-Vidur, the G4 expansion, prefix-cache accounting, multi-replica routing,
-per-request metrics with `replica` and `request_num_prefill_tokens_cached`, and
-determinism across two identical invocations. It is the cheapest thing that can
-falsify the integration.
+**Run A is a basic integration check. It is not a feasibility result.**
 
-What Run A **cannot** show: anything about long context, and anything about
-whether a Llama-3-8B fit is affordable. Those need Run B.
+What it can establish: that the unified schema reaches Vidur; that the G4
+expansion is accepted and accounted; that prefix-cache metrics, multi-replica
+routing and per-request output (`replica`,
+`request_num_prefill_tokens_cached`) behave; that two identical invocations are
+bit-identical. It is the cheapest thing that can **falsify** the integration.
+
+**What Run A cannot establish, and must not be reported as establishing:**
+
+- **Nothing about Llama-3.1-class feasibility.** It runs `Llama-2-7b-hf` — a
+  different model, a different profile, a different predictor, 4 096-token
+  context against D′'s 65 536. Its timings, memory and fit cost say nothing
+  about the configuration D-008 actually specifies.
+- **Nothing about G1.** Whether a Llama-3-8B fit completes inside our limits is
+  exactly what Run B tests and Run A cannot.
+- **Only a partial answer on G4c.** It can give a paired 512-vs-16 comparison at
+  4 096 tokens. Whether that transfers to 65 536 — where cache pressure, batch
+  sizes and eviction all differ — is open.
 
 > **Run B — long-context feasibility (expensive, gated).**
 > Same pipeline at `Meta-Llama-3-8B`, 65 536-token budget. Requires a **new

@@ -224,13 +224,15 @@ to what the **shipped profiles** and the **D′ workload** can establish — whi
 is most of D-008's gates.
 
 **Prepared, awaiting approval (all free, CPU only):**
-1. Adopt the **G4** 512→16 block-hash expansion in the workload build. Mapping
-   resolved, implemented and tested; conservative bias **measured at −0.88 pp**
-   (2.27 % of blocks are sub-512 tails whose sharing is unknown and is recorded
-   as none).
-2. **Run A** — smallest end-to-end run, ~2 min, on M1's surviving predictor
-   cache (`a100 / Llama-2-7b-hf / TP=1`, 1.3 GB, 24 `.pkl`). Exercises the whole
-   pipeline except long context.
+1. Adopt the **G4a/G4b** 512→16 block-hash expansion in the workload build.
+   Mapping implemented and tested; workload-level bias **measured at −0.88 pp**.
+   **G4 is not resolved** — **G4c**, the system-level effect on cache-hit rate,
+   p95 TTFT and *routing decisions*, is open and is not bounded by the −0.88 pp,
+   which assumes an infinite cache.
+2. **Run A** — a **basic integration check**, ~2 min, on M1's surviving cache
+   (`a100 / Llama-2-7b-hf / TP=1`). It can falsify the integration cheaply. It
+   establishes **nothing** about Llama-3.1-class or 65 536-token feasibility —
+   different model, profile, predictor and context.
 3. **G2 probe** — whether the random forest flat-lines outside its training
    range, answerable on the **existing** cache with **no fit at all**.
 
