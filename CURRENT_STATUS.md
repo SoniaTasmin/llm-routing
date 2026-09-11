@@ -73,27 +73,30 @@ to RQ2/E3 scope. The vendored tree is untouched and checksum-verified.
 
 ## Open decision awaiting the user
 
-**M3 resource budget.** Plan prepared, nothing spent:
-`docs/m3-calibration-plan.md`.
+**M3 budget — DECIDED 2026-09-11: option 4, defer. No spend authorised.**
+Recorded as **D-009**, which also returns the real-vLLM replay and the G3 verdict
+to **M11**, where the frozen plan already put fidelity work. I had duplicated
+them into M3's criteria; that was my scope creep, not the plan's.
 
-| | Option | Spend | Gets us |
+**M3 stays `PREPARATION IN PROGRESS — DEFERRED`.** Not done, not cut. Its
+remaining criteria are blocked on a budget decision, not on work.
+
+**D′ is not hardened by the deferral.** D-008 stays provisional, the native trace
+is preserved unmodified, and the truncation is a one-line change to the workload
+build. Deferral leaves the *reason* for D′ standing; nothing about it hardens
+with time.
+
+### Now awaiting approval: three free M4 items
+
+`docs/m4-feasibility-plan.md`. All CPU-only, using what is already on disk.
+
+| | Item | Cost | Effect |
 |---|---|---|---|
-| 1 | Pilot only | ~$2 | toolchain proven, throughput measured |
-| **2** | **Pilot + full profile (recommended)** | **~$8–18** | **retires the D′ truncation** — native Mooncake at 0 pp distortion |
-| 3 | + real-vLLM replay | ~$12–22 | above, plus the M11 reference trace early |
-| 4 | Defer M3 | $0 | borrowed profile stands; D′ permanent; G3 open until M11 |
+| 1 | Adopt the **G4** 512→16 expansion in the workload build | free | closes the mapping half of G4 |
+| 2 | **Run A** — smallest end-to-end run on M1's surviving cache | free, ~2 min | proves the integration, or falsifies it cheaply |
+| 3 | **G2 probe** — random-forest behaviour outside its training range | free, ~2 min | answers it with **no fit at all** |
 
-Requested cap **$40**, hard stop after the pilot for review.
-
-**A finding that re-scoped M3 before any spend:** Vidur's profiler loads **no
-model weights** (`initialize_dummy_weights`, `torch.randn_like`). So no gated
-HuggingFace access and no 16 GB download are needed — but also, re-profiling
-under the name "Llama-3.1-8B" would produce data **identical** to
-`Meta-Llama-3-8B`, because the configs are shape-identical. **Gate G3 therefore
-cannot be closed by Vidur's profiler at all**; only a real-vLLM comparison
-closes it, at M11. M3's genuine value is instead extending decode coverage from
-65 536 to 131 072 tokens, which would **retire the D′ truncation** rather than
-manage it.
+**Not requested:** the Run B predictor fit, any GPU rental, any M3 profiling.
 
 ## Known blockers / open items
 

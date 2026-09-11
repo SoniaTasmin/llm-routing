@@ -212,3 +212,68 @@ def test_realised_sharing_is_stable_across_seeds():
             f"phi={phi}: realised sharing varies by {100*spread:.3f} pp across "
             "seeds; it should be a property of the construction"
         )
+
+
+# ------------------------------------------------- G4: block-size expansion
+
+from workload.transforms import expand_block_hashes, TAIL_ID_BASE  # noqa: E402
+
+
+def test_expansion_transfers_shared_coarse_prefixes_to_fine_blocks():
+    """The soundness property. Chained hashes make sharing a prefix relation, so
+    two requests agreeing on k coarse ids must agree on 32k fine ids."""
+    a = _r(0, 1024, 10, [7, 8])          # 2 coarse blocks
+    b = _r(1, 1024, 10, [7, 9])          # shares only the first
+    (ea, eb), _ = expand_block_hashes([a, b], 16)
+    assert ea.block_hash_ids[:32] == eb.block_hash_ids[:32]      # shared head
+    assert ea.block_hash_ids[32:] != eb.block_hash_ids[32:]      # divergent tail
+    assert len(ea.block_hash_ids) == 1024 // 16
+
+
+def test_expansion_does_not_invent_sharing_between_unrelated_requests():
+    a = _r(0, 512, 10, [1])
+    b = _r(1, 512, 10, [2])
+    (ea, eb), _ = expand_block_hashes([a, b], 16)
+    assert set(ea.block_hash_ids).isdisjoint(eb.block_hash_ids)
+
+
+def test_sub_source_block_tail_is_marked_unknown_not_shared():
+    """A prompt tail below a 512 boundary is never hashed upstream. Those whole
+    16-blocks get unique ids so they can never count as reuse - the mapping
+    under-counts rather than fabricating."""
+    a = _r(0, 1024 + 256, 10, [5, 6])    # 2 whole coarse blocks + 16 tail blocks
+    b = _r(1, 1024 + 256, 10, [5, 6])    # identical coarse prefix
+    (ea, eb), rep = expand_block_hashes([a, b], 16)
+    assert rep.tail_blocks == 2 * (256 // 16)
+    assert ea.block_hash_ids[:64] == eb.block_hash_ids[:64]      # known part shared
+    assert set(ea.block_hash_ids[64:]).isdisjoint(eb.block_hash_ids[64:])
+    assert all(i >= TAIL_ID_BASE for i in ea.block_hash_ids[64:])
+
+
+def test_expansion_reports_how_much_it_cannot_know():
+    reqs = [_r(i, 1024 + 256, 10, [5, 6]) for i in range(4)]
+    _, rep = expand_block_hashes(reqs, 16)
+    d = rep.as_dict()
+    assert d["factor"] == 32
+    assert d["tail_blocks_unknown_sharing"] > 0
+    assert 0 < d["tail_fraction"] < 1
+
+
+def test_expansion_preserves_lengths_arrivals_and_sessions():
+    src = [_r(0, 2048, 77, [1, 2, 3, 4], sess=9)]
+    out, _ = expand_block_hashes(src, 16)
+    assert out[0].num_prefill_tokens == 2048 and out[0].num_decode_tokens == 77
+    assert out[0].arrival_s == src[0].arrival_s and out[0].session_id == 9
+    assert out[0].block_size == 16
+
+
+def test_expansion_rejects_non_divisible_target():
+    with pytest.raises(WorkloadError, match="not a multiple"):
+        expand_block_hashes([_r(0, 512, 1, [1])], 48)
+
+
+def test_expansion_rejects_cache_blind_workload():
+    from workload.schema import WorkloadRequest
+    blind = WorkloadRequest(0, 0.0, 512, 1)
+    with pytest.raises(WorkloadError, match="cache-blind"):
+        expand_block_hashes([blind], 16)

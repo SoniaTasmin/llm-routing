@@ -547,3 +547,77 @@ model). G2 showing the predictor does something other than flat-line (→ re-ope
 native). G3 showing the proxy does not transfer (→ new profiling at M3, or a
 different model). Any reversal is recorded as a superseding entry, never by
 editing this one.
+
+---
+
+## D-009 — Sequencing amendment: return the fidelity work to M11; defer paid GPU execution
+**Date:** 2026-09-11 · **Status:** ACCEPTED · **Amends:** the M3 acceptance criteria (not `PROJECT_SPEC.md`'s frozen plan)
+
+**Context.** Two things need reconciling, and one of them is a mistake of mine.
+
+**1. I put M11's work into M3's acceptance criteria.** The frozen milestone
+history is unambiguous about the split:
+
+| Milestone | `MILESTONES.md`, as written at M0 |
+|---|---|
+| **M3** | "Measure real vLLM timing behaviour to **parameterise the simulator's timing model**." |
+| **M11** | "**E8: simulator fidelity against real vLLM**; produces the fidelity error band used by the inconclusiveness rule." |
+
+M3 *produces* timing data. M11 *validates* it. When I wrote M3's detailed
+acceptance criteria at 2026-09-10 I added two that belong to M11:
+
+- "A short real-vLLM replay on the same hardware, for comparison."
+- "A written verdict on **G3**: does the shipped profile represent our model?"
+
+Both are fidelity validation — E8's definition. Neither is parameterisation.
+This was scope creep introduced by me, not by the plan.
+
+It also could not have succeeded where it sat. A later finding
+(`docs/m3-calibration-plan.md` §2) establishes that Vidur's profiler never loads
+weights, so re-running it cannot distinguish two shape-identical configs. G3 is
+**structurally** an M11 question: only a comparison against real vLLM serving
+real weights can answer it.
+
+**2. The user has declined paid GPU execution for now** (option 4), with the
+explicit condition that deferral must not harden any provisional decision.
+
+**Decision.**
+
+1. **Move the real-vLLM replay and the G3 verdict from M3 to M11**, where the
+   frozen plan already put the fidelity work. M3's acceptance criteria are
+   amended to cover parameterisation only:
+   - a costed calibration plan (**met**);
+   - Vidur's profiler run on the chosen `(model, device, TP)` (**GPU-blocked**);
+   - reproducibility from `REPRODUCE.md` (**partially met**, open pending
+     recorded environment versions).
+2. **M3 stays `PREPARATION IN PROGRESS` — not "done", not "cut".** Its remaining
+   criteria are blocked on a budget decision the user has deferred, not on work.
+3. **No paid GPU execution is authorised.** Nothing may be rented or charged
+   without an explicit, separately approved budget.
+4. **D-008 stays PROVISIONAL and all four of its gates stay OPEN.** Deferring M3
+   changes none of that.
+
+**Rationale.** `PROJECT_SPEC.md` §12's twelve-week plan is frozen and this does
+not amend it — it restores M3 and M11 to the division of labour the frozen plan
+already stated, which my detailed criteria had blurred. Recording it as an
+amendment rather than editing the criteria silently is the point: a reader
+comparing M3's criteria across revisions would otherwise see two requirements
+disappear with no explanation.
+
+**Consequences.**
+
+- M3 can be completed, when funded, **without** any real-vLLM work. That makes
+  its budget smaller and its scope cleaner.
+- M11 gains two explicit inputs it already implied: the replay harness and the
+  G3 verdict. Its estimate should grow accordingly when M11 is planned.
+- Until M3 is funded, the simulator runs on the shipped profile as an
+  **unvalidated proxy**, and every result carries that `assumption`.
+
+**Explicitly NOT decided here.** That D′ is permanent — it is not. D-008 remains
+provisional, the native trace is preserved unmodified, and the truncation is a
+one-line change to the workload build. Deferring M3 leaves the *reason* for D′
+standing; nothing about it hardens with time.
+
+**Would falsify this.** Evidence that M3's parameterisation cannot be validated
+at M11 for some structural reason, which would mean the split does not work and
+the fidelity work must move earlier.

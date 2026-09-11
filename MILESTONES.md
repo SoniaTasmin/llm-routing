@@ -172,7 +172,7 @@ RQ2/E3 scope.
 ---
 
 ## M3 — vLLM calibration
-**Week:** 3 · **State:** `PREPARATION IN PROGRESS` (no GPU work started; awaiting budget approval)
+**Week:** 3 · **State:** `PREPARATION IN PROGRESS — DEFERRED` (2026-09-11: user chose option 4, no spend authorised. Scope amended by **D-009**: fidelity work returned to M11.)
 
 **Objective.** Obtain trustworthy timing data for the model and hardware this
 study will simulate, so that every latency, cost and SLO number downstream rests
@@ -191,12 +191,12 @@ proxy is either validated or replaced.
       Runbook ready and dry-runnable: `run_profiling.sh plan` prints exactly what
       would execute without touching a GPU. Collectives profiling is **not
       required**: our target replica config is TP=1.
-- [ ] A short real-vLLM replay — **GPU-blocked**, and the only route to G3. May
-      be deferred to M11, where the E8 comparison is actually built.
-- [ ] A written verdict on **G3** — **blocked**, and now known to be
-      *unanswerable by Vidur's profiler*: it loads no weights, so a
-      "Llama-3.1-8B" profile would be byte-identical to `Meta-Llama-3-8B`. Only
-      real-vLLM comparison settles it.
+- ~~A short real-vLLM replay~~ — **MOVED TO M11 by D-009.** Fidelity validation
+      is E8's job by the frozen plan; I had duplicated it into M3.
+- ~~A written verdict on **G3**~~ — **MOVED TO M11 by D-009**, and structurally
+      so: Vidur's profiler never loads weights, so re-running it cannot
+      distinguish two shape-identical configs. Only real-vLLM comparison settles
+      it.
 - [ ] Everything reproducible from `REPRODUCE.md` — **partially met.**
       §3c is written and the CPU-side half (dry run, profile audit, tests) is
       reproducible today. The criterion stays **open** until a run records its
@@ -216,9 +216,31 @@ full predictor fit (that is M4/G1). Any spend before approval.
 ---
 
 ## M4 — Simulator + single-replica validation
-**Week:** 4 · **State:** `NOT STARTED`
+**Week:** 4 · **State:** `PLAN PREPARED` — `docs/m4-feasibility-plan.md`
 
 Simulator (chosen base) validated against real single-replica measurements.
+With M3 deferred (**D-009**) there are no new real measurements, so M4 narrows
+to what the **shipped profiles** and the **D′ workload** can establish — which
+is most of D-008's gates.
+
+**Prepared, awaiting approval (all free, CPU only):**
+1. Adopt the **G4** 512→16 block-hash expansion in the workload build. Mapping
+   resolved, implemented and tested; conservative bias **measured at −0.88 pp**
+   (2.27 % of blocks are sub-512 tails whose sharing is unknown and is recorded
+   as none).
+2. **Run A** — smallest end-to-end run, ~2 min, on M1's surviving predictor
+   cache (`a100 / Llama-2-7b-hf / TP=1`, 1.3 GB, 24 `.pkl`). Exercises the whole
+   pipeline except long context.
+3. **G2 probe** — whether the random forest flat-lines outside its training
+   range, answerable on the **existing** cache with **no fit at all**.
+
+**Blocked:** **G1** long-context feasibility (needs an authorised predictor fit;
+no wall-clock estimate is offered, and why not is stated in the plan) · **G3**
+proxy fidelity (moved to M11 by D-009) · reconsidering D′ (needs M3, then
+G4 + G1 + a superseding decision).
+
+**Bounds fixed for any authorised fit:** 6 h wall cap · 5.5 GB RSS on a 7 GB
+host · full log to file, never `tail` · one fit at a time · stop on MEAP > 5 %.
 
 ---
 

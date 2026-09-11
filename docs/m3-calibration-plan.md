@@ -42,14 +42,25 @@ Three consequences, and the third is the important one:
 
 1. **No HuggingFace access or gated-model approval is needed**, and no ~16 GB
    download. Cheaper and simpler than assumed.
-2. Profiling is a function of **shape**, so it is fast and deterministic.
-3. **Re-profiling under the name "Llama-3.1-8B" would produce data identical to
+2. The **sweep grid** is a function of shape, so it is deterministic: the same
+   config yields the same set of `(batch, kv, chunk)` points. **The measured
+   times are not.** They are wall-clock kernel benchmarks and carry the usual
+   run-to-run variation — clock and power state, thermals, driver and library
+   version, co-tenancy. *(Corrected 2026-09-11: an earlier revision called
+   profiling "deterministic" without qualification, which conflated the grid
+   with the measurements taken over it.)*
+3. **Re-profiling under the name "Llama-3.1-8B" would sweep the same grid as
    `Meta-Llama-3-8B`**, because the two configs are shape-identical (32 layers,
-   4 096 hidden, 32 q heads, 8 kv heads, 14 336 intermediate). The profiler
-   cannot tell them apart.
+   4 096 hidden, 32 q heads, 8 kv heads, 14 336 intermediate). The profiler has
+   no way to distinguish them — it never reads a checkpoint, only shapes.
+   *(Corrected: an earlier revision said the data would be "identical" and
+   "byte-identical". Wrong. The **sampled points** would coincide; the **timing
+   values** would differ by measurement noise and by whatever hardware and
+   software stack produced them.)*
 
 **So gate G3 — "does the shipped profile represent real Llama-3.1-8B?" — cannot
-be closed by Vidur's profiler at all.** It is answerable only by comparing
+be closed by re-running Vidur's profiler**, because a profiler that never loads
+weights cannot distinguish two models with identical shapes. It is answerable only by comparing
 against **real vLLM serving real Llama-3.1-8B weights end-to-end**, which is E8
 at M11. Recording this now prevents M3 from buying an answer it cannot deliver.
 
@@ -58,7 +69,7 @@ at M11. Recording this now prevents M3 from buying an answer it cannot deliver.
 | Deliverable | Value | Gate |
 |---|---|---|
 | **A. Reproduce** the shipped profile on our own GPU and compare | Confirms the shipped data is reproducible and our toolchain is sound. Guards against a silently corrupt or mis-generated vendored profile | supports G1 |
-| **B. Extend decode coverage** from 65 536 to 131 072 tokens | **Would retire the D′ truncation entirely** and let us run native Mooncake with 0 pp workload distortion | **retires the D′ compromise** |
+| **B. Extend decode coverage** from 65 536 to 131 072 tokens | **Removes the reason D′ exists.** It is *necessary* for running native Mooncake, not *sufficient*: retiring D′ would additionally need G4 (block-size mapping) resolved, G1 (the fit and run actually completing at that context) demonstrated, and a recorded decision superseding D-008 | **unblocks** reconsidering D′ |
 | **C. Stand up the real-vLLM replay harness** | The only route to G3; also the E8 methodology we said we would borrow from LLMServingSim | **G3**, completed at M11 |
 
 **B is the headline.** D-008 accepted a +0.44 pp distortion *only* because decode
@@ -100,7 +111,7 @@ profiling data at all** — if we ever want those, they are additional runs.
 | `num_tensor_parallel_workers` | `1` | our target replica config |
 | `block_size` | **16** | **forced** — Vidur filters training rows on it and every shipped profile is 16 (gate **G4**) |
 | `max_chunk_size` | 4 096 | matches shipped a100 data |
-| `max_seq_len` | pilot 32 768 → full **131 072** | full value is what retires the D′ truncation |
+| `max_seq_len` | pilot 32 768 → full **131 072** | the full value removes the coverage limit that forced D′ |
 | `max_batch_size` | pilot 32 → full 512 | matches shipped coverage |
 
 ---
@@ -211,10 +222,14 @@ the simulator's timing model is the one being validated. M3 deliverable **C**
 builds the replay harness; M11 runs the comparison and returns the verdict on
 **G3**.
 
-**If M3 is skipped entirely**, the study still runs — on a borrowed, unvalidated
-profile, with the D′ truncation permanent, and with E8 comparing real vLLM against
-a timing model derived from someone else's measurements of a different model. That
-is the honest cost of not doing it.
+**If M3 is deferred**, the study still runs — on a borrowed, unvalidated profile,
+with the D′ truncation **still in force**, and with E8 comparing real vLLM against
+a timing model derived from someone else's measurements. That is the honest cost.
+
+**Deferral does not make D′ permanent.** D-008 is provisional, the native trace is
+preserved unmodified beside the variant, and the truncation is a one-line change
+to the workload build. What deferral does is leave the *reason* for D′ standing.
+Nothing about it hardens with time.
 
 ---
 
@@ -225,7 +240,7 @@ is the honest cost of not doing it.
 | **1** | Pilot only | ~$2 | Toolchain proven, throughput measured, full-run cost known |
 | **2** | **Pilot + full profile** *(recommended)* | **~$8–18** | **Retires the D′ truncation**; native Mooncake at 0 pp distortion |
 | **3** | Pilot + full + vLLM replay | ~$12–22 | Above, plus the M11 reference trace captured early |
-| **4** | Defer M3 | $0 | Proceed on the borrowed profile; D′ truncation permanent; G3 unresolved until M11 |
+| **4** | Defer M3 | $0 | Proceed on the borrowed profile; D′ **remains in force and remains provisional**; G3 unresolved until M11 |
 
 **Recommendation: option 2**, with the cap at **$40** and a hard stop after the
 pilot for review. Phase 3 is better placed at M11, when the E8 comparison is

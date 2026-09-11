@@ -861,3 +861,94 @@ without asking what it ranged over. The mechanical check I wrote last time —
 state an aggregate's domain and reconcile it against something independent —
 would have caught every one of them, including this round's, and I did not run
 it. It is now the first thing to do before any aggregate enters a document.
+
+---
+
+## 2026-09-11 — M3 deferred; four claims corrected; G4 resolved and measured
+
+User chose **option 4**: defer paid GPU execution, no spend. Conditions attached:
+deferral must not harden anything provisional, and I must not silently redefine
+completion.
+
+### Four claims I had overstated
+
+1. **"Identical profiling data."** I wrote that re-profiling under the name
+   "Llama-3.1-8B" would produce data *identical*, even *byte-identical*, to
+   `Meta-Llama-3-8B`. Wrong. The **sampled grid** would coincide, because it is
+   derived from shape and the configs are shape-identical. The **timing values**
+   would not: they are wall-clock kernel benchmarks carrying run-to-run
+   variation from clock and power state, thermals, driver and library version,
+   and co-tenancy.
+
+2. **"Profiling is deterministic."** Same conflation, stated more briefly. The
+   grid is deterministic; the measurements over it are not. A profiler that
+   produces reproducible *coordinates* does not produce reproducible *times*.
+
+3. **"D′ truncation permanent."** I used this word twice about deferral. It is
+   wrong, and the user was right to strike it. D-008 is provisional, the native
+   trace sits unmodified beside the variant, and the truncation is a one-line
+   change to the workload build. Deferring M3 leaves the *reason* for D′
+   standing — it does not make D′ harder to undo later. Nothing about it hardens
+   with time.
+
+4. **"Extending decode coverage retires D′."** Too strong. Extending coverage is
+   **necessary and not sufficient**: retiring D′ would also need G4 resolved, G1
+   demonstrated, and a recorded decision superseding D-008. "Removes the reason
+   D′ exists" is the accurate phrasing.
+
+All four are the same habit in different clothes — stating a consequence at full
+strength when the evidence supports it only conditionally.
+
+### The scope creep I had not noticed until asked to reconcile
+
+M3's one-line brief in the frozen milestone history is *"measure real vLLM timing
+behaviour to parameterise the simulator's timing model."* M11's is *"E8:
+simulator fidelity against real vLLM."* Produce versus validate.
+
+When I wrote M3's detailed acceptance criteria I added two that are plainly
+M11's: a real-vLLM replay, and a verdict on G3. Neither is parameterisation.
+I had duplicated the fidelity milestone into the calibration milestone without
+noticing, and then — worse — built a budget request partly around delivering
+them there.
+
+They also could not have succeeded where I put them. G3 asks whether the shipped
+profile represents real Llama-3.1-8B, and a profiler that never loads weights
+cannot answer that however many times it runs. G3 is *structurally* an M11
+question.
+
+Recorded as **D-009** rather than by quietly deleting two criteria: a reader
+diffing M3's criteria across revisions would otherwise watch two requirements
+vanish with no account of why.
+
+### G4 resolved, and the conservatism measured rather than asserted
+
+The 512→16 mapping is now implemented and tested, not just specified.
+
+`child(h_i, j) = h_i * 32 + j`. Sound because chained hashes make sharing a
+prefix relation: agreement on `k` coarse ids means the first `512k` tokens are
+identical, hence the first `32k` fine blocks are. The map depends only on
+`(h_i, j)`, so agreement transfers and **disagreement cannot manufacture
+agreement** — which is now a test rather than a claim.
+
+The part it cannot know is the sub-512 prompt tail, up to 31 whole 16-blocks per
+request, never hashed upstream. Those get unique never-matching ids, so the
+mapping under-counts and never fabricates. Measured cost of that choice:
+
+| workload | tail blocks | sharing @512 | sharing @16 | bias |
+|---|---|---|---|---|
+| native | 196 301 (2.17 %) | 38.19 % | 37.36 % | −0.83 pp |
+| D′ | 196 727 (2.27 %) | 38.63 % | 37.76 % | **−0.88 pp** |
+
+Bounded, conservative, and now a number rather than a hazard.
+
+### The cheap thing I nearly missed
+
+M1's predictor cache survived on disk: 1.3 GB, 24 `.pkl`, `a100 / Llama-2-7b /
+TP=1`. That makes a full end-to-end pipeline run **free and about two minutes**,
+and it makes the G2 extrapolation question answerable **with no fit at all** —
+the Llama-2-7b decode data stops at 4 032, so querying the loaded predictor past
+that shows directly whether the forest flat-lines.
+
+I spent the previous session costing a GPU rental and had not checked what was
+already sitting in `.spike/`. Two of D-008's four gates can be advanced today for
+nothing.

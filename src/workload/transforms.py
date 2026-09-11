@@ -166,3 +166,135 @@ def truncate_to_context_budget(
         decode_tokens_out=dec_out,
     )
     return out, report
+
+
+# ---------------------------------------------------------------------------
+# Gate G4: 512-token workload hashes -> 16-token simulator blocks
+# ---------------------------------------------------------------------------
+
+TAIL_ID_BASE = 1 << 40  # disjoint from any expanded id; never collides
+
+
+@dataclass(frozen=True)
+class ExpansionReport:
+    """What the block-size expansion did, and how much it cannot know."""
+
+    source_block_size: int
+    target_block_size: int
+    factor: int
+    requests: int
+    expanded_blocks: int      # derived from real 512-token hashes
+    tail_blocks: int          # sub-512 remainder: sharing UNKNOWN, marked unique
+    total_blocks: int
+
+    @property
+    def tail_fraction(self) -> float:
+        return self.tail_blocks / self.total_blocks if self.total_blocks else 0.0
+
+    def as_dict(self) -> dict:
+        return {
+            "source_block_size": self.source_block_size,
+            "target_block_size": self.target_block_size,
+            "factor": self.factor,
+            "requests": self.requests,
+            "expanded_blocks": self.expanded_blocks,
+            "tail_blocks_unknown_sharing": self.tail_blocks,
+            "total_blocks": self.total_blocks,
+            "tail_fraction": round(self.tail_fraction, 6),
+        }
+
+    def summary(self) -> str:
+        return (
+            f"{self.source_block_size}->{self.target_block_size} expansion "
+            f"(x{self.factor}): {self.total_blocks:,} blocks, of which "
+            f"{self.tail_blocks:,} ({100*self.tail_fraction:.2f}%) are sub-"
+            f"{self.source_block_size} tail blocks whose sharing is UNKNOWN and "
+            "is therefore recorded as none"
+        )
+
+
+def expand_block_hashes(
+    requests: Sequence[WorkloadRequest], target_block_size: int = 16
+) -> tuple[list[WorkloadRequest], ExpansionReport]:
+    """Re-express coarse prefix hashes at the simulator's finer block size.
+
+    **Why this is needed.** Mooncake hashes at 512 tokens. Vidur's KV block size
+    is 16 and is *forced*: ``_load_attention_df`` filters training rows on
+    ``block_size`` and every shipped profile carries 16 only, so 512 would leave
+    the predictor with no data. Handing 512-granularity ids to a 16-token cache
+    would make each id cover 16 tokens instead of 512 — a 32x under-count of the
+    cached region, biased toward making cache-aware routing look worse than it is.
+
+    **Why the expansion is sound rather than invented.** Prefix hashes are
+    *chained*: id ``h_i`` identifies the whole prefix through block ``i``. If two
+    requests agree on their first ``k`` coarse ids, their first ``512k`` tokens
+    are identical, hence their first ``32k`` 16-token blocks are identical too.
+    Emitting ``child(h_i, j) = h_i * factor + j`` states exactly that and nothing
+    more: the map is deterministic and depends only on ``(h_i, j)``, so agreement
+    on coarse prefixes transfers to fine prefixes, and disagreement does not
+    create agreement.
+
+    **What it deliberately does not know.** A request's prompt tail below a
+    512-token boundary is never hashed upstream, yet it contains up to 31 whole
+    16-token blocks. Their sharing is genuinely unknown. They are given **unique,
+    never-matching** ids, so the result **under-counts** sharing. It does not
+    fabricate it. That bias is measured and reported in ``ExpansionReport`` rather
+    than assumed negligible.
+    """
+    if not requests:
+        raise WorkloadError("no requests to expand")
+    src_bs = requests[0].block_size
+    if src_bs is None:
+        raise WorkloadError("cannot expand a cache-blind workload")
+    if src_bs % target_block_size != 0:
+        raise WorkloadError(
+            f"source block size {src_bs} is not a multiple of target "
+            f"{target_block_size}; there is no whole-block refinement"
+        )
+    factor = src_bs // target_block_size
+
+    out: list[WorkloadRequest] = []
+    n_expanded = n_tail = 0
+    tail_counter = 0
+
+    for r in requests:
+        if r.block_size != src_bs:
+            raise WorkloadError(
+                f"request {r.request_id}: mixed source block sizes "
+                f"({src_bs} and {r.block_size})"
+            )
+        coarse = r.block_hash_ids or ()
+        fine: list[int] = []
+        for h in coarse:
+            fine.extend(h * factor + j for j in range(factor))
+        n_expanded += len(fine)
+
+        # Whole target-blocks the coarse hashes could not describe.
+        n_target_total = r.num_prefill_tokens // target_block_size
+        for _ in range(n_target_total - len(fine)):
+            fine.append(TAIL_ID_BASE + tail_counter)
+            tail_counter += 1
+            n_tail += 1
+
+        out.append(
+            WorkloadRequest(
+                request_id=r.request_id,
+                arrival_s=r.arrival_s,
+                num_prefill_tokens=r.num_prefill_tokens,
+                num_decode_tokens=r.num_decode_tokens,
+                block_hash_ids=tuple(fine),
+                block_size=target_block_size,
+                session_id=r.session_id,
+            )
+        )
+
+    report = ExpansionReport(
+        source_block_size=src_bs,
+        target_block_size=target_block_size,
+        factor=factor,
+        requests=len(requests),
+        expanded_blocks=n_expanded,
+        tail_blocks=n_tail,
+        total_blocks=n_expanded + n_tail,
+    )
+    return out, report
