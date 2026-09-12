@@ -209,7 +209,10 @@ class ExpansionReport:
             f"(x{self.factor}): {self.total_blocks:,} blocks, of which "
             f"{self.tail_blocks:,} ({100*self.tail_fraction:.2f}%) are sub-"
             f"{self.source_block_size} tail blocks whose sharing is UNKNOWN and "
-            "is therefore recorded as none"
+            "is therefore recorded as none. NOTE: this accounts for unhashed "
+            "tails only. Fine-prefix sharing between UNEQUAL coarse blocks is "
+            "also invisible and is not measurable from hashes alone, so true "
+            "16-token sharing is >= what this produces, by an unknown amount."
         )
 
 
@@ -234,12 +237,26 @@ def expand_block_hashes(
     on coarse prefixes transfers to fine prefixes, and disagreement does not
     create agreement.
 
-    **What it deliberately does not know.** A request's prompt tail below a
-    512-token boundary is never hashed upstream, yet it contains up to 31 whole
-    16-token blocks. Their sharing is genuinely unknown. They are given **unique,
-    never-matching** ids, so the result **under-counts** sharing. It does not
-    fabricate it. That bias is measured and reported in ``ExpansionReport`` rather
-    than assumed negligible.
+    **Two distinct things it cannot know**, and only the first is measurable:
+
+    1. **Unhashed prompt tails.** A request's remainder below a 512-token
+       boundary is never hashed upstream, yet contains up to 31 whole 16-token
+       blocks. They are given **unique, never-matching** ids. This bias *is*
+       quantified — ``ExpansionReport.tail_blocks`` — and it is the only part of
+       the picture the measured transformation delta covers.
+
+    2. **Fine-prefix sharing between *unequal* coarse blocks.** If two requests
+       diverge at coarse block *i* (different ids there), their underlying
+       512-token spans may still share a leading run of 16-token blocks — the
+       texts could agree for 300 tokens and then differ. The expansion gives
+       unequal parents disjoint children by construction, so that sharing is
+       **invisible to us**, and it is **not measurable from the data we have**:
+       Mooncake supplies hashes, not tokens, so there is nothing to compare
+       below 512-token resolution.
+
+    Both push the same way — the mapping **under-counts** true 16-token sharing
+    and never fabricates it. But the reported delta bounds only (1).
+    **True fine-grained sharing is >= what this produces, by an unknown amount.**
     """
     if not requests:
         raise WorkloadError("no requests to expand")
@@ -252,6 +269,23 @@ def expand_block_hashes(
             f"{target_block_size}; there is no whole-block refinement"
         )
     factor = src_bs // target_block_size
+
+    # Enforce, do not assume, that expanded ids and tail ids occupy disjoint
+    # ranges. child(h, j) = h*factor + j, so the highest child id is
+    # max_h*factor + factor-1; it must stay below TAIL_ID_BASE or a coarse-derived
+    # block could silently alias a tail block and manufacture sharing.
+    max_h = max(
+        (max(r.block_hash_ids) for r in requests if r.block_hash_ids), default=-1
+    )
+    if max_h >= 0:
+        highest_child = max_h * factor + (factor - 1)
+        if highest_child >= TAIL_ID_BASE:
+            raise WorkloadError(
+                f"id-space collision: highest expanded id {highest_child} reaches "
+                f"TAIL_ID_BASE {TAIL_ID_BASE}. Coarse-derived blocks would alias "
+                "tail blocks and fabricate sharing. Raise TAIL_ID_BASE or "
+                "renumber the source hashes."
+            )
 
     out: list[WorkloadRequest] = []
     n_expanded = n_tail = 0
@@ -286,6 +320,24 @@ def expand_block_hashes(
                 block_size=target_block_size,
                 session_id=r.session_id,
             )
+        )
+
+    # Post-conditions. Cheap relative to the transformation, and they guard the
+    # two properties the soundness argument depends on.
+    seen_tail: set[int] = set()
+    for r in out:
+        for bid in r.block_hash_ids or ():
+            if bid >= TAIL_ID_BASE:
+                if bid in seen_tail:
+                    raise WorkloadError(
+                        f"tail id {bid} reused; tail ids must be globally unique "
+                        "within a workload or they would create phantom sharing"
+                    )
+                seen_tail.add(bid)
+    if len(seen_tail) != n_tail:
+        raise WorkloadError(
+            f"tail id accounting mismatch: {len(seen_tail)} distinct ids for "
+            f"{n_tail} tail blocks"
         )
 
     report = ExpansionReport(

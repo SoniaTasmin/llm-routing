@@ -1,0 +1,21 @@
+INFO 09-12 08:51:54 trace_request_generator.py:86] Loaded trace file /mnt/d/llm-routing-research/experiments/m4_run_a/run_a_trace.csv with 128 requests
+INFO 09-12 08:51:54 sklearn_execution_time_predictor.py:683] Getting predictions for compute operations
+INFO 09-12 08:51:59 sklearn_execution_time_predictor.py:741] Getting predictions for attention operations
+Traceback (most recent call last):
+  File "/home/sonia/.local/share/uv/python/cpython-3.10-linux-x86_64-gnu/lib/python3.10/runpy.py", line 196, in _run_module_as_main
+    return _run_code(code, main_globals, None,
+  File "/home/sonia/.local/share/uv/python/cpython-3.10-linux-x86_64-gnu/lib/python3.10/runpy.py", line 86, in _run_code
+    exec(code, run_globals)
+  File "/mnt/d/llm-routing-research/.spike/vidur-canary/vidur/main.py", line 16, in <module>
+    main()
+  File "/mnt/d/llm-routing-research/.spike/vidur-canary/vidur/main.py", line 11, in main
+    simulator = Simulator(config)
+  File "/mnt/d/llm-routing-research/.spike/vidur-canary/vidur/simulator.py", line 55, in __init__
+    self._init_event_queue()
+  File "/mnt/d/llm-routing-research/.spike/vidur-canary/vidur/simulator.py", line 120, in _init_event_queue
+    first_request = self._request_generator.get_next_request()
+  File "/mnt/d/llm-routing-research/.spike/vidur-canary/vidur/request_generator/trace_request_generator.py", line 108, in get_next_request
+    request = Request(
+  File "/mnt/d/llm-routing-research/.spike/vidur-canary/vidur/entities/request.py", line 55, in __init__
+    last_block_size >= 0 and last_block_size < block_size
+AssertionError: 318 is not in the range [0, 16)

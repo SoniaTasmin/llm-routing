@@ -561,8 +561,15 @@ editing this one.
 
 **Context.** Two things need reconciling, and one of them is a mistake of mine.
 
-**1. I put M11's work into M3's acceptance criteria.** The frozen milestone
-history is unambiguous about the split:
+**1. I mis-diagnosed the overlap between M3 and M11.** My first framing said
+M3's real-vLLM criteria were accidental scope creep to be *removed*. **That was
+wrong, and it would have quietly dropped a requirement the frozen plan
+contains.** M3's own one-line brief is *"**Measure real vLLM timing behaviour**
+to parameterise the simulator's timing model"* — real-vLLM measurement is
+squarely M3's, and stays M3's. It is **deferred**, not removed.
+
+What genuinely belongs to M11 is the *other* thing I had put in M3: the **G3
+fidelity verdict** and the **error band**. The frozen split is:
 
 | Milestone | `MILESTONES.md`, as written at M0 |
 |---|---|
@@ -589,8 +596,9 @@ explicit condition that deferral must not harden any provisional decision.
 
 **Proposed (1, 2, 4) and decided by the user (3).**
 
-1. **PROPOSED — move the real-vLLM replay and the G3 verdict from M3 to M11**,
-   where the frozen plan already put the fidelity work. M3's acceptance criteria are
+1. **PROPOSED — move the G3 fidelity verdict (and the error band it feeds) from
+   M3 to M11.** M3's **real-vLLM measurement requirement stays in M3 and is
+   DEFERRED**, not removed: it is parameterisation, which is M3's brief. M3's acceptance criteria are
    amended to cover parameterisation only:
    - a costed calibration plan (**met**);
    - Vidur's profiler run on the chosen `(model, device, TP)` (**GPU-blocked**);
@@ -612,10 +620,11 @@ disappear with no explanation.
 
 **Consequences.**
 
-- M3 can be completed, when funded, **without** any real-vLLM work. That makes
-  its budget smaller and its scope cleaner.
-- M11 gains two explicit inputs it already implied: the replay harness and the
-  G3 verdict. Its estimate should grow accordingly when M11 is planned.
+- M3, when funded, still requires **real-vLLM measurement** for parameterisation.
+  Its budget is smaller than the version that also carried the fidelity verdict,
+  but it is **not** a GPU-free milestone and must not be described as one.
+- M11 gains one explicit input it already implied: the **G3 verdict** and the
+  error band derived from it. Its estimate should grow accordingly.
 - Until M3 is funded, the simulator runs on the shipped profile as an
   **unvalidated proxy**, and every result carries that `assumption`.
 

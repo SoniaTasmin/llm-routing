@@ -277,3 +277,27 @@ def test_expansion_rejects_cache_blind_workload():
     blind = WorkloadRequest(0, 0.0, 512, 1)
     with pytest.raises(WorkloadError, match="cache-blind"):
         expand_block_hashes([blind], 16)
+
+
+def test_expansion_refuses_when_id_ranges_could_collide():
+    """Enforced, not assumed: a coarse id large enough that its children reach
+    TAIL_ID_BASE would alias tail blocks and fabricate sharing."""
+    huge = TAIL_ID_BASE  # child(huge, 0) == TAIL_ID_BASE exactly
+    with pytest.raises(WorkloadError, match="id-space collision"):
+        expand_block_hashes([_r(0, 512, 1, [huge])], 16)
+
+
+def test_tail_ids_are_globally_unique_across_the_workload():
+    """Two requests with identical coarse prefixes must still get DISTINCT tail
+    ids, or their unhashed tails would appear to share."""
+    reqs = [_r(i, 1024 + 256, 5, [5, 6]) for i in range(3)]
+    out, rep = expand_block_hashes(reqs, 16)
+    tails = [b for r in out for b in r.block_hash_ids if b >= TAIL_ID_BASE]
+    assert len(tails) == len(set(tails)) == rep.tail_blocks
+
+
+def test_expansion_report_states_it_bounds_only_the_tail_bias():
+    """G4b covers unhashed tails. Fine-prefix sharing between UNEQUAL coarse
+    blocks is also missed and is not measurable from hashes alone."""
+    _, rep = expand_block_hashes([_r(0, 1024 + 256, 5, [5, 6])], 16)
+    assert "UNEQUAL coarse blocks" in rep.summary()

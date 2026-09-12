@@ -952,3 +952,98 @@ that shows directly whether the forest flat-lines.
 I spent the previous session costing a GPU rental and had not checked what was
 already sitting in `.spike/`. Two of D-008's four gates can be advanced today for
 nothing.
+
+---
+
+## 2026-09-12 — Run A fails, and finds the thing it existed to find
+
+Four corrections first, then the authorised integration check.
+
+### Correction 1 caught an arithmetic error of mine
+
+Recomputing the D′ expansion from the checksummed artefact
+(`456d80dc…`) reconciles: 264 919 coarse blocks, matching the manifest's
+`blocks_out` exactly; delta **−0.8762 pp**. A previous message of mine quoted
+"D′ @512 = 271 067 blocks". That was `8 674 135 / 32` — dividing the
+*post-expansion* total, which **includes tail blocks**, by 32. Same species as
+every other arithmetic slip this project has caught: a number computed over the
+wrong domain.
+
+### Correction 3 named a bias I had not thought about
+
+I had documented one thing the mapping cannot know — unhashed sub-512 tails. The
+user pointed out a second: **fine-prefix sharing between *unequal* coarse
+blocks.** If two requests diverge at coarse block *i*, their underlying
+512-token spans may still share a leading run of 16-token blocks. The expansion
+gives unequal parents disjoint children, so that sharing is invisible.
+
+And it is **not measurable from what we have** — Mooncake gives hashes, not
+tokens, so there is nothing to compare below 512 resolution. So G4b's −0.88 pp
+bounds only the *transformation delta*. True fine-grained sharing is ≥ what we
+produce, by an unknown amount. That distinction now sits in the code's docstring
+and in a test, because it is exactly the kind of caveat that evaporates when a
+number gets quoted twice.
+
+### Correction 4: I had proposed dropping a real requirement
+
+My D-009 framing said M3's real-vLLM criteria were accidental scope creep to be
+removed. Wrong, and dangerous: M3's own brief is *"**measure real vLLM timing
+behaviour** to parameterise the simulator's timing model"*. Real-vLLM
+measurement **is** M3's, and stays M3's — **deferred**, not removed. Only the
+G3 *fidelity verdict and error band* belong to M11.
+
+Left uncorrected, I would have quietly redefined M3 as a GPU-free milestone and
+made it look affordable by deleting the expensive part. The user caught it. I
+had also marked my own proposal `ACCEPTED`, which is the same reflex in a
+different place.
+
+### Run A: FAIL, in the most useful way
+
+128 deterministic requests, 4 096-token budget, cached Llama-2-7b predictor
+under `require_cache`, 10-minute and 5.5 GB limits. Three attempts:
+
+1. Wrong flag — `random_forrest` vs `random_forest`. Canary fixed `main`'s typo
+   and I carried the old spelling over from M1.
+2. `IntCastingNaNError` — I wrote an empty `session_id` column; Vidur casts it
+   to int unconditionally, but **shims a missing column to None**. Since our
+   Mooncake workload has no session ids by decision, the column should simply
+   not exist. Absent means absent.
+3. `AssertionError: 318 is not in the range [0, 16)`.
+
+The third is the real one. `Request.__init__` requires
+`len(block_hash_ids) == (prefill + decode) // block_size`. **Vidur hashes the
+whole sequence.** Our schema hashes **prefill only**, deliberately — a router at
+admission cannot know what will be generated.
+
+So this is not a bug on either side. It is a **design collision between our
+schema rule and Vidur's data contract**, and it would have surfaced at M6 or M9
+at enormously greater cost. Two minutes of a free run found it.
+
+### And then the finding underneath the finding
+
+Checking whether simply satisfying Vidur's contract would be safe: it would not.
+`get_computed_blocks` walks the **entire** hash list and is **not bounded by
+`num_prefill_tokens`**. `get_cached_prefill_length` — the exact call B3 and B4
+route on — returns that walk.
+
+Supply prefill+decode hashes and a request whose *generated* tokens were already
+cached by an earlier identical conversation gets credited with them at
+admission. The router would be deciding on **this request's own un-generated
+output**.
+
+Future information, in the independent variable of the entire study. It is in
+Vidur canary, not in anything we wrote, and it goes to `PROJECT_SPEC.md` §5's
+baseline discipline and to whether RQ1 means what it says.
+
+I have not fixed it. The three candidate reconciliations have materially
+different consequences for RQ1 and that is the user's call.
+
+### What Run A did not do
+
+No 512-vs-16 timing comparison — instructed to hold until both configurations
+have a defensible timing setup. **G4c stays open.** No fit, no GPU, no spend;
+peak RSS 3.96 GB against a 5.5 GB limit, 122 s against 600 s.
+
+Determinism is **not established**: the two runs failed byte-identically, which
+is not the same thing as producing identical simulated output. Recording that as
+unestablished rather than letting an identical failure stand in for a pass.

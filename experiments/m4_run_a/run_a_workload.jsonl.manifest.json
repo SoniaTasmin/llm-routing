@@ -1,0 +1,31 @@
+{
+  "name": "run-a-integration-check-4096",
+  "source": "mooncake",
+  "prefix_structure": "present",
+  "num_requests": 128,
+  "schema_version": "1.0",
+  "block_size": 16,
+  "upstream_url": "https://github.com/kvcache-ai/Mooncake :: FAST25-release/traces/conversation_trace.jsonl",
+  "upstream_commit": null,
+  "upstream_sha256": "b8cbb061a85206d729d91cdc2981f43c9e0d99209dce588d3af5f7934408b9df",
+  "transformation": "mooncake-conversation-trunc65536 (sha256 456d80dc9098fa52...) -> first 128 requests in arrival order with prefill+decode <= 4096 -> block hashes expanded 512->16 (G4a)",
+  "nominal_phi": null,
+  "realised_sharing": 0.3707620528771384,
+  "seed": null,
+  "notes": "RUN A INTEGRATION-CHECK INPUT ONLY. Deliberately tiny and unrepresentative. Nothing measured on this workload is evidence about D' long-context feasibility or timing fidelity.",
+  "extra": {
+    "source_artifact": "workloads/derived/mooncake-conversation-trunc65536.jsonl",
+    "source_sha256": "456d80dc9098fa524c0d58180d1806315b0a39e034d95f577add4b77dd3747c2",
+    "budget_tokens": 4096,
+    "expansion": {
+      "source_block_size": 512,
+      "target_block_size": 16,
+      "factor": 32,
+      "requests": 128,
+      "expanded_blocks": 10528,
+      "tail_blocks_unknown_sharing": 2332,
+      "total_blocks": 12860,
+      "tail_fraction": 0.181337
+    }
+  }
+}

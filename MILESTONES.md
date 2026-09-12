@@ -191,12 +191,14 @@ proxy is either validated or replaced.
       Runbook ready and dry-runnable: `run_profiling.sh plan` prints exactly what
       would execute without touching a GPU. Collectives profiling is **not
       required**: our target replica config is TP=1.
-- ~~A short real-vLLM replay~~ — **MOVED TO M11 by D-009.** Fidelity validation
-      is E8's job by the frozen plan; I had duplicated it into M3.
-- ~~A written verdict on **G3**~~ — **MOVED TO M11 by D-009**, and structurally
-      so: Vidur's profiler never loads weights, so re-running it cannot
-      distinguish two shape-identical configs. Only real-vLLM comparison settles
-      it.
+- [ ] A short real-vLLM replay for **parameterisation** — **STAYS IN M3,
+      DEFERRED** (D-009). M3's brief is "measure real vLLM timing behaviour";
+      this is that requirement, blocked on budget rather than removed. M3 is
+      **not** a GPU-free milestone.
+- ~~A written verdict on **G3**~~ — **MOVED TO M11 by D-009.** That is a
+      *fidelity* judgement feeding the error band, which is E8's job; and it
+      could not be answered here anyway, since Vidur's profiler never loads
+      weights and cannot distinguish two shape-identical configs.
 - [ ] Everything reproducible from `REPRODUCE.md` — **partially met.**
       §3c is written and the CPU-side half (dry run, profile audit, tests) is
       reproducible today. The criterion stays **open** until a run records its
