@@ -140,7 +140,7 @@
         "subsamples": null,
         "min_batch_index": null,
         "max_batch_index": null,
-        "output_dir": "/mnt/d/llm-routing-research/experiments/m4_run_a/logs/out_1/2026-09-12_08-51-54-653463"
+        "output_dir": "/mnt/d/llm-routing-research/experiments/m4_run_a/logs/out_2/2026-09-12_11-41-31-514923"
     },
     "slo_config": {
         "prefill_e2e_time_normalized": null,
