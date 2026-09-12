@@ -551,7 +551,7 @@ editing this one.
 ---
 
 ## D-009 — Sequencing amendment: return the fidelity work to M11; defer paid GPU execution
-**Date:** 2026-09-11 · **Status:** **PROPOSED — AWAITING USER APPROVAL** · **Proposes to amend:** the M3 acceptance criteria (not `PROJECT_SPEC.md`'s frozen plan)
+**Date:** 2026-09-11 · **Status:** **ACCEPTED (as corrected) 2026-09-12** — approved by the user on the corrected text only: M3's real-vLLM parameterisation remains **deferred and incomplete**, the G3 fidelity verdict moves to M11, and **no other milestone requirement is removed**. · **Amends:** the M3 acceptance criteria (not `PROJECT_SPEC.md`'s frozen plan)
 
 > **Status correction, 2026-09-11.** This entry was first written with
 > `Status: ACCEPTED`. That was wrong: the user asked me to *propose* a

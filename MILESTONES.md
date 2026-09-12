@@ -172,7 +172,7 @@ RQ2/E3 scope.
 ---
 
 ## M3 — vLLM calibration
-**Week:** 3 · **State:** `PREPARATION IN PROGRESS — DEFERRED` (2026-09-11: user chose option 4, no spend authorised. Scope amended by **D-009**: fidelity work returned to M11.)
+**Week:** 3 · **State:** `PREPARATION IN PROGRESS — DEFERRED` (2026-09-11: option 4, no spend. Scope amended by **D-009**, approved as corrected 2026-09-12: the G3 *fidelity verdict* moves to M11; M3's **real-vLLM parameterisation stays here, deferred and incomplete**.)
 
 **Objective.** Obtain trustworthy timing data for the model and hardware this
 study will simulate, so that every latency, cost and SLO number downstream rests

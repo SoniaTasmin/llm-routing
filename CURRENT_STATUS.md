@@ -74,9 +74,14 @@ to RQ2/E3 scope. The vendored tree is untouched and checksum-verified.
 ## Open decision awaiting the user
 
 **M3 budget — DECIDED 2026-09-11: option 4, defer. No spend authorised.**
-Recorded as **D-009**, which also returns the real-vLLM replay and the G3 verdict
-to **M11**, where the frozen plan already put fidelity work. I had duplicated
-them into M3's criteria; that was my scope creep, not the plan's.
+Recorded as **D-009**, **approved as corrected 2026-09-12**: only the **G3
+fidelity verdict** moves to M11. M3's **real-vLLM parameterisation stays in M3,
+deferred and incomplete** — its brief is "measure real vLLM timing behaviour".
+No other milestone requirement is removed.
+
+**M4 Run A: PASS** (2026-09-12) — 128/128 requests, determinism established,
+cached predictor only, no spend. It demonstrated and then closed a
+future-information leak in the router's cache estimate. `experiments/m4_run_a/RESULT.md`.
 
 **M3 stays `PREPARATION IN PROGRESS — DEFERRED`.** Not done, not cut. Its
 remaining criteria are blocked on a budget decision, not on work.
